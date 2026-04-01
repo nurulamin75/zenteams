@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { MobileMenuButton, Sidebar } from './Sidebar';
+import { MobileBottomNav } from './MobileBottomNav';
+import { MobileMoreMenu } from './MobileMoreMenu';
+import { Sidebar } from './Sidebar';
 
 const SIDEBAR_COLLAPSED_KEY = 'zenteams-sidebar-collapsed';
 
@@ -15,8 +17,8 @@ function readSidebarCollapsed(): boolean {
 
 export function Layout() {
   const { user, loading, userPreferences } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(readSidebarCollapsed);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -48,15 +50,14 @@ export function Layout() {
   return (
     <div className={`app-shell${sidebarCollapsed ? ' app-shell--sidebar-collapsed' : ''}`}>
       <Sidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        open={false}
+        onClose={() => {}}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
       />
       <div className="app-main">
         <header className="app-topbar">
-          <MobileMenuButton onClick={() => setSidebarOpen(true)} />
-          <div className="app-topbar-spacer" />
+          <span className="app-topbar-brand">ZenTeams</span>
         </header>
         <div
           className={`app-content${userPreferences?.compactUI ? ' app-content--compact' : ''}`}
@@ -64,6 +65,8 @@ export function Layout() {
           <Outlet />
         </div>
       </div>
+      <MobileBottomNav onOpenMore={() => setMobileMoreOpen(true)} />
+      <MobileMoreMenu open={mobileMoreOpen} onClose={() => setMobileMoreOpen(false)} />
     </div>
   );
 }

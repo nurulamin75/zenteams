@@ -7,7 +7,6 @@ import {
   Layers,
   LayoutDashboard,
   LogOut,
-  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -142,10 +141,3 @@ export function Sidebar({
   );
 }
 
-export function MobileMenuButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button type="button" className="mobile-menu-btn" aria-label="Open menu" onClick={onClick}>
-      <Menu size={22} strokeWidth={2} />
-    </button>
-  );
-}
