@@ -93,13 +93,9 @@ export function Sidebar({
               </NavLink>
               {isAdmin && (
                 <>
-                  <NavLink to="/invite" className={linkClass} onClick={onClose} title="Invite">
-                    <UserPlus size={20} strokeWidth={2} />
-                    <span className="sidebar-link-text">Invite</span>
-                  </NavLink>
-                  <NavLink to="/admin" className={linkClass} onClick={onClose} title="Team roster">
+                  <NavLink to="/teams" className={linkClass} onClick={onClose} title="Teams">
                     <Users size={20} strokeWidth={2} />
-                    <span className="sidebar-link-text">Team roster</span>
+                    <span className="sidebar-link-text">Teams</span>
                   </NavLink>
                   <NavLink to="/analytics" className={linkClass} onClick={onClose} title="Analytics">
                     <BarChart3 size={20} strokeWidth={2} />

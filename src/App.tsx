@@ -13,8 +13,7 @@ import { JoinTeam } from './pages/JoinTeam';
 import { Dashboard } from './pages/Dashboard';
 import { Today } from './pages/Today';
 import { History } from './pages/History';
-import { AdminTeam } from './pages/AdminTeam';
-import { Invite } from './pages/Invite';
+import { Teams } from './pages/Teams';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
 
@@ -38,8 +37,9 @@ export default function App() {
                   <Route path="history" element={<History />} />
                 </Route>
                 <Route element={<RequireAdmin />}>
-                  <Route path="admin" element={<AdminTeam />} />
-                  <Route path="invite" element={<Invite />} />
+                  <Route path="teams" element={<Teams />} />
+                  <Route path="admin" element={<Navigate to="/teams" replace />} />
+                  <Route path="invite" element={<Navigate to="/teams" replace />} />
                   <Route path="analytics" element={<Analytics />} />
                 </Route>
               </Route>

@@ -1251,6 +1251,108 @@ html[data-theme='dark'] .attendance-pill--active {
   }
 }
 
+.history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem 1.25rem;
+  margin-bottom: 1.15rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-toolbar__filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem 1.25rem;
+}
+
+.history-toolbar__exports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.history-export-btn {
+  white-space: nowrap;
+}
+
+.history-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.history-field__label {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-select {
+  min-width: 11rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font: inherit;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.history-toolbar__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+.history-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.history-table__date {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.history-table__num {
+  font-variant-numeric: tabular-nums;
+}
+
+.history-table__today td {
+  background: var(--accent-soft);
+}
+
+.history-empty {
+  margin: 1rem 0 0;
+  text-align: center;
+}
+
+.teams-page .teams-invite-section {
+  margin-bottom: 1.5rem;
+}
+
+.teams-section-title {
+  margin: 0 0 0.35rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.teams-invite-sub {
+  margin: 0 0 1rem;
+  max-width: 40rem;
+}
+
+.teams-roster-card {
+  margin-top: 0;
+}
+
 .history-loading-more {
   margin-top: 0.75rem;
 }

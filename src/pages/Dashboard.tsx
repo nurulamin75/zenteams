@@ -286,10 +286,7 @@ export function Dashboard() {
             {role === 'admin' && (
               <>
                 <li>
-                  <Link to="/invite">Invite teammates</Link>
-                </li>
-                <li>
-                  <Link to="/admin">Team roster</Link>
+                  <Link to="/teams">Teams</Link>
                 </li>
                 <li>
                   <Link to="/analytics">Analytics</Link>
