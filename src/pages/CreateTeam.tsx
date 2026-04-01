@@ -39,6 +39,9 @@ export function CreateTeam() {
         inviteCode,
         createdAt: serverTimestamp(),
         createdBy: u.uid,
+        expectedStartHour: 9,
+        expectedStartMinute: 0,
+        policies: {},
       });
       batch.set(doc(teamRef, 'members', u.uid), {
         role: 'admin',
@@ -70,8 +73,7 @@ export function CreateTeam() {
       <header className="page-header">
         <h1>Create team</h1>
         <p className="page-sub">
-          You&apos;ll be the admin. Your invite code and join link appear on the <strong>Dashboard</strong> and{' '}
-          <strong>Invite</strong> page.
+          You&apos;ll be the admin. Your invite code and join link appear on the <strong>Teams</strong> page.
         </p>
       </header>
       <div className="card narrow">

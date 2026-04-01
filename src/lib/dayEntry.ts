@@ -1,4 +1,4 @@
-import type { DayBreak, DayEntry, WorkLocation } from '../types';
+import type { ClockInGeo, DayBreak, DayEntry, WorkLocation } from '../types';
 
 function normalizeBreaks(raw: unknown): DayBreak[] {
   const arr = Array.isArray(raw) ? raw : [];
@@ -11,14 +11,30 @@ function normalizeBreaks(raw: unknown): DayBreak[] {
   });
 }
 
+function parseGeo(raw: unknown): ClockInGeo | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const g = raw as Record<string, unknown>;
+  const lat = g.lat;
+  const lng = g.lng;
+  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+  return {
+    lat,
+    lng,
+    accuracy: typeof g.accuracy === 'number' ? g.accuracy : undefined,
+  };
+}
+
 export function parseDayEntry(data: Record<string, unknown> | undefined): DayEntry | null {
   if (!data) return null;
+  const note = data.note;
   return {
     clockIn: (data.clockIn as DayEntry['clockIn']) ?? null,
     clockOut: (data.clockOut as DayEntry['clockOut']) ?? null,
     breaks: normalizeBreaks(data.breaks),
     workLocation: (data.workLocation as WorkLocation | null) ?? null,
     updatedAt: data.updatedAt as DayEntry['updatedAt'],
+    note: typeof note === 'string' ? note : note === null ? null : undefined,
+    clockInGeo: parseGeo(data.clockInGeo),
   };
 }
 

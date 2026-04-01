@@ -39,10 +39,11 @@ interface TeamTodayStats {
 const RECENT_DAYS = 5;
 
 export function Dashboard() {
-  const { user, teamId, teamName, role, memberDisplayName } = useAuth();
+  const { user, teamId, teamName, role, memberDisplayName, teamSettings } = useAuth();
   const dateId = useMemo(() => localDateId(), []);
   const [todayEntry, setTodayEntry] = useState<DayEntry | null>(null);
   const [recent, setRecent] = useState<{ dateId: string; entry: DayEntry }[]>([]);
+  const [staleOpenShiftDateId, setStaleOpenShiftDateId] = useState<string | null>(null);
   const [teamStats, setTeamStats] = useState<TeamTodayStats | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
 
@@ -58,7 +59,7 @@ export function Dashboard() {
         getDoc(doc(db, 'teams', teamId, 'days', d, 'entries', user.uid))
       );
       const tail: Promise<QuerySnapshot>[] = [];
-      if (role === 'admin') {
+      if (role === 'admin' || role === 'manager') {
         tail.push(getDocs(collection(db, 'teams', teamId, 'members')));
         tail.push(getDocs(collection(db, 'teams', teamId, 'days', dateId, 'entries')));
       }
@@ -67,26 +68,34 @@ export function Dashboard() {
       const entrySnaps = snapshots.slice(0, n) as DocumentSnapshot[];
       let membersSnap: QuerySnapshot | null = null;
       let entriesSnap: QuerySnapshot | null = null;
-      if (role === 'admin' && tail.length === 2) {
+      if ((role === 'admin' || role === 'manager') && tail.length === 2) {
         membersSnap = snapshots[n] as QuerySnapshot;
         entriesSnap = snapshots[n + 1] as QuerySnapshot;
       }
 
       const todayIdx = dates.findIndex((d) => d === dateId);
       const todaySnap = entrySnaps[todayIdx >= 0 ? todayIdx : 0]!;
-      setTodayEntry(todaySnap.exists() ? parseDayEntry(todaySnap.data()) : null);
+      setTodayEntry(
+        todaySnap.exists() ? parseDayEntry(todaySnap.data() as Record<string, unknown>) : null
+      );
 
       const recentList: { dateId: string; entry: DayEntry }[] = [];
+      let staleOpen: string | null = null;
       dates.forEach((d, i) => {
-        if (d === dateId) return;
         const snap = entrySnaps[i]!;
         if (!snap.exists()) return;
-        const entry = parseDayEntry(snap.data());
-        if (entry) recentList.push({ dateId: d, entry });
+        const entry = parseDayEntry(snap.data() as Record<string, unknown>);
+        if (!entry) return;
+        if (d !== dateId && entry.clockIn && !entry.clockOut) {
+          if (!staleOpen || d < staleOpen) staleOpen = d;
+        }
+        if (d === dateId) return;
+        recentList.push({ dateId: d, entry });
       });
       setRecent(recentList);
+      setStaleOpenShiftDateId(staleOpen);
 
-      if (role === 'admin' && membersSnap && entriesSnap) {
+      if ((role === 'admin' || role === 'manager') && membersSnap && entriesSnap) {
         const now = new Date();
         let clockedIn = 0;
         let clockedOut = 0;
@@ -111,6 +120,15 @@ export function Dashboard() {
       setDataLoading(false);
     }
   }, [user, teamId, dateId, role]);
+
+  const longOpenToday = useMemo(() => {
+    if (!todayEntry?.clockIn || todayEntry.clockOut) return false;
+    const policyH = teamSettings.policies.autoClockOutHours;
+    const threshold =
+      typeof policyH === 'number' && policyH > 0 ? policyH : 14;
+    const ms = Date.now() - todayEntry.clockIn.toMillis();
+    return ms > threshold * 3600_000;
+  }, [todayEntry, teamSettings.policies.autoClockOutHours]);
 
   useEffect(() => {
     void load();
@@ -144,7 +162,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      {role === 'admin' && (
+      {(role === 'admin' || role === 'manager') && (
         <div className="dashboard-stats" role="region" aria-label="Team overview for today">
           {dataLoading ? (
             <>
@@ -199,6 +217,22 @@ export function Dashboard() {
                 </div>
               </>
             )
+          )}
+        </div>
+      )}
+
+      {(staleOpenShiftDateId || longOpenToday) && (
+        <div className="dashboard-notice dashboard-notice--warn" role="status">
+          {staleOpenShiftDateId ? (
+            <p className="dashboard-notice__text">
+              You still have an <strong>open shift</strong> on {staleOpenShiftDateId}. Finish it on{' '}
+              <Link to="/history">History</Link> or ask a team lead to correct the entry.
+            </p>
+          ) : (
+            <p className="dashboard-notice__text">
+              You&apos;ve been clocked in a long time today. If you&apos;re done, clock out on{' '}
+              <Link to="/today">Attendance</Link>.
+            </p>
           )}
         </div>
       )}
@@ -283,7 +317,7 @@ export function Dashboard() {
             <li>
               <Link to="/settings">Settings</Link>
             </li>
-            {role === 'admin' && (
+            {(role === 'admin' || role === 'manager') && (
               <>
                 <li>
                   <Link to="/teams">Teams</Link>

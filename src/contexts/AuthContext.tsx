@@ -19,7 +19,8 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
-import type { MemberRole, UserPreferences, UserTeam } from '../types';
+import { DEFAULT_TEAM_SETTINGS, parseTeamSettings } from '../lib/teamSettings';
+import type { MemberRole, TeamSettings, UserPreferences, UserTeam } from '../types';
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -33,6 +34,8 @@ interface AuthContextValue {
   teams: UserTeam[];
   role: MemberRole | null;
   memberDisplayName: string | null;
+  teamSettings: TeamSettings;
+  memberScheduleOverride: { hour: number; minute: number } | null;
   userPreferences: UserPreferences | null;
   refreshTeam: () => Promise<void>;
   refreshUserDoc: () => Promise<void>;
@@ -54,6 +57,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [teams, setTeams] = useState<UserTeam[]>([]);
   const [role, setRole] = useState<MemberRole | null>(null);
   const [memberDisplayName, setMemberDisplayName] = useState<string | null>(null);
+  const [teamSettings, setTeamSettings] = useState<TeamSettings>(DEFAULT_TEAM_SETTINGS);
+  const [memberScheduleOverride, setMemberScheduleOverride] = useState<{
+    hour: number;
+    minute: number;
+  } | null>(null);
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
 
   const loadUserAndTeam = useCallback(async (uid: string) => {
@@ -74,6 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTeams([]);
       setRole(null);
       setMemberDisplayName(null);
+      setTeamSettings(DEFAULT_TEAM_SETTINGS);
+      setMemberScheduleOverride(null);
       return;
     }
 
@@ -103,6 +113,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setTeams([]);
       setRole(null);
       setMemberDisplayName(null);
+      setTeamSettings(DEFAULT_TEAM_SETTINGS);
+      setMemberScheduleOverride(null);
       return;
     }
 
@@ -121,13 +133,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setInviteCode(
       teamSnap.exists() ? ((teamSnap.data().inviteCode as string | undefined) ?? null) : null
     );
+    setTeamSettings(teamSnap.exists() ? parseTeamSettings(teamSnap.data() as Record<string, unknown>) : DEFAULT_TEAM_SETTINGS);
     if (memberSnap.exists()) {
       const m = memberSnap.data();
       setRole(m.role as MemberRole);
       setMemberDisplayName(m.displayName as string);
+      const h = m.expectedStartHour;
+      const min = m.expectedStartMinute;
+      if (typeof h === 'number' && typeof min === 'number' && h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+        setMemberScheduleOverride({ hour: h, minute: min });
+      } else {
+        setMemberScheduleOverride(null);
+      }
     } else {
       setRole(null);
       setMemberDisplayName(null);
+      setMemberScheduleOverride(null);
     }
   }, []);
 
@@ -143,6 +164,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTeams([]);
         setRole(null);
         setMemberDisplayName(null);
+        setTeamSettings(DEFAULT_TEAM_SETTINGS);
+        setMemberScheduleOverride(null);
         setUserPreferences(null);
       }
       setLoading(false);
@@ -203,6 +226,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       teams,
       role,
       memberDisplayName,
+      teamSettings,
+      memberScheduleOverride,
       userPreferences,
       refreshTeam,
       refreshUserDoc,
@@ -221,6 +246,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       teams,
       role,
       memberDisplayName,
+      teamSettings,
+      memberScheduleOverride,
       userPreferences,
       refreshTeam,
       refreshUserDoc,

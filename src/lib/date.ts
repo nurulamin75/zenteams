@@ -36,6 +36,13 @@ export function formatLongDate(dateId: string): string {
   });
 }
 
+export function formatHourMinute(hour: number, minute: number): string {
+  return new Date(2000, 0, 1, hour, minute, 0, 0).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export function formatDurationFromHours(hours: number): string {
   if (!Number.isFinite(hours) || hours <= 0) return '0m';
   const totalMin = Math.max(0, Math.round(hours * 60));

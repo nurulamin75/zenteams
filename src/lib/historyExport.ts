@@ -28,10 +28,20 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function buildHistoryExportRows(rows: HistoryRow[], todayDateId: string): HistoryExportRow[] {
+export function buildHistoryExportRows(
+  rows: HistoryRow[],
+  todayDateId: string,
+  expectedHour: number,
+  expectedMinute: number,
+  holidays: Set<string>,
+  pto: Set<string>
+): HistoryExportRow[] {
   const now = new Date();
   return rows.map(({ dateId, entry }) => {
-    const pill = attendanceRowPill(dateId, todayDateId, entry);
+    const pill = attendanceRowPill(dateId, todayDateId, entry, expectedHour, expectedMinute, {
+      isTeamHoliday: holidays.has(dateId),
+      isMemberPto: pto.has(dateId),
+    });
     let duration = '—';
     if (entry?.clockIn) {
       duration = entry.clockOut

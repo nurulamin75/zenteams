@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
 import { ArrowDownUp, FileSpreadsheet, FileText, FileType } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
@@ -20,6 +20,9 @@ import {
   readHistoryRowsCache,
   writeHistoryRowsCache,
 } from '../lib/historyRowsCache';
+import { effectiveExpectedStart } from '../lib/teamSettings';
+import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
+import type { TimeOffKind } from '../types';
 
 const INITIAL_CHUNK = 10;
 
@@ -40,9 +43,10 @@ function sortRowsByDate(rows: HistoryRow[], dir: SortDir): HistoryRow[] {
 }
 
 export function History() {
-  const { user, teamId } = useAuth();
+  const { user, teamId, teamSettings, memberScheduleOverride } = useAuth();
   const todayId = useMemo(() => localDateId(), []);
   const [rows, setRows] = useState<HistoryRow[]>([]);
+  const [timeOffRows, setTimeOffRows] = useState<TimeOffDocLite[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [filter, setFilter] = useState<HistoryFilter>('all');
@@ -50,6 +54,27 @@ export function History() {
   const [, setLiveTick] = useState(0);
 
   const dates = useMemo(() => lastNDates(HISTORY_LOOKBACK), []);
+
+  useEffect(() => {
+    if (!teamId) return;
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'teams', teamId, 'timeOff'));
+        setTimeOffRows(
+          snap.docs.map((d) => {
+            const x = d.data();
+            return {
+              dateId: x.dateId as string,
+              kind: x.kind as TimeOffKind,
+              userId: x.userId as string | undefined,
+            };
+          })
+        );
+      } catch {
+        setTimeOffRows([]);
+      }
+    })();
+  }, [teamId]);
 
   const load = useCallback(async () => {
     if (!user || !teamId) {
@@ -126,9 +151,27 @@ export function History() {
     return sortRowsByDate(f, sortDir);
   }, [rows, filter, sortDir]);
 
+  const expectedStart = useMemo(
+    () => effectiveExpectedStart(teamSettings, memberScheduleOverride),
+    [teamSettings, memberScheduleOverride]
+  );
+
+  const { holidays, pto } = useMemo(
+    () => timeOffSetsForMember(timeOffRows, user?.uid ?? ''),
+    [timeOffRows, user?.uid]
+  );
+
   const exportRows = useMemo(
-    () => buildHistoryExportRows(displayRows, todayId),
-    [displayRows, todayId]
+    () =>
+      buildHistoryExportRows(
+        displayRows,
+        todayId,
+        expectedStart.hour,
+        expectedStart.minute,
+        holidays,
+        pto
+      ),
+    [displayRows, todayId, expectedStart, holidays, pto]
   );
 
   const exportBase = useMemo(() => {
@@ -229,7 +272,15 @@ export function History() {
                 </thead>
                 <tbody>
                   {displayRows.map(({ dateId, entry }) => {
-                    const pill = attendanceRowPill(dateId, todayId, entry);
+                    const to = pillTimeOffOpts(dateId, holidays, pto);
+                    const pill = attendanceRowPill(
+                      dateId,
+                      todayId,
+                      entry,
+                      expectedStart.hour,
+                      expectedStart.minute,
+                      to.isTeamHoliday || to.isMemberPto ? to : undefined
+                    );
                     const nowForRow = new Date();
                     let duration = '—';
                     if (entry?.clockIn) {

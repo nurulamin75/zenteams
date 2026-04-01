@@ -1,14 +1,32 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
-import { doc, getDoc, onSnapshot, setDoc, Timestamp, updateDoc } from 'firebase/firestore';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  setDoc,
+  Timestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import { Coffee, Hourglass, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { attendanceRowPill } from '../lib/attendance';
 import { entryWorkedHours, grossShiftMs, parseDayEntry } from '../lib/dayEntry';
-import { formatDurationFromHours, formatLongDate, formatTime, lastNDates, localDateId } from '../lib/date';
+import {
+  formatDurationFromHours,
+  formatHourMinute,
+  formatLongDate,
+  formatTime,
+  lastNDates,
+  localDateId,
+} from '../lib/date';
 import { invalidateHistoryRowsCache } from '../lib/historyRowsCache';
-import type { DayBreak, DayEntry, WorkLocation } from '../types';
+import { effectiveExpectedStart } from '../lib/teamSettings';
+import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
+import type { ClockInGeo, DayBreak, DayEntry, TimeOffKind, WorkLocation } from '../types';
 
 const TABLE_DAYS = 10;
 const WEEK_SUM_DAYS = 7;
@@ -30,22 +48,46 @@ function formatElapsed(ms: number): string {
 }
 
 export function Today() {
-  const { user, teamId } = useAuth();
+  const { user, teamId, teamSettings, memberScheduleOverride } = useAuth();
   const dateId = useMemo(() => localDateId(), []);
   const tableDateIds = useMemo(() => lastNDates(TABLE_DAYS), []);
 
   const [entry, setEntry] = useState<DayEntry | null>(null);
   const entryLatest = useRef<DayEntry | null>(null);
   const [entryMap, setEntryMap] = useState<Map<string, DayEntry | null>>(new Map());
+  const [timeOffRows, setTimeOffRows] = useState<TimeOffDocLite[]>([]);
   const [snapshotLoading, setSnapshotLoading] = useState(true);
   const [tableLoading, setTableLoading] = useState(true);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const [tick, setTick] = useState(0);
   const [weekWorkedHours, setWeekWorkedHours] = useState<number | null>(null);
+  const [punchNote, setPunchNote] = useState('');
+  const [includeGeoOnClockIn, setIncludeGeoOnClockIn] = useState(false);
 
   const entryRef =
     user && teamId ? doc(db, 'teams', teamId, 'days', dateId, 'entries', user.uid) : null;
+
+  useEffect(() => {
+    if (!teamId) return;
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'teams', teamId, 'timeOff'));
+        setTimeOffRows(
+          snap.docs.map((d) => {
+            const x = d.data();
+            return {
+              dateId: x.dateId as string,
+              kind: x.kind as TimeOffKind,
+              userId: x.userId as string | undefined,
+            };
+          })
+        );
+      } catch {
+        setTimeOffRows([]);
+      }
+    })();
+  }, [teamId]);
 
   useEffect(() => {
     entryLatest.current = entry;
@@ -114,6 +156,16 @@ export function Today() {
 
   const now = useMemo(() => new Date(), [tick]);
 
+  const expectedStart = useMemo(
+    () => effectiveExpectedStart(teamSettings, memberScheduleOverride),
+    [teamSettings, memberScheduleOverride]
+  );
+
+  const { holidays, pto } = useMemo(
+    () => timeOffSetsForMember(timeOffRows, user?.uid ?? ''),
+    [timeOffRows, user?.uid]
+  );
+
   const mergedRows = useMemo(
     () =>
       tableDateIds.map((id) => ({
@@ -143,6 +195,25 @@ export function Today() {
   async function clockIn(loc: WorkLocation) {
     await write(async () => {
       const ts = Timestamp.now();
+      let clockInGeo: ClockInGeo | null = null;
+      if (includeGeoOnClockIn && typeof navigator !== 'undefined' && navigator.geolocation) {
+        await new Promise<void>((resolve) => {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              clockInGeo = {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                accuracy: pos.coords.accuracy,
+              };
+              resolve();
+            },
+            () => resolve(),
+            { enableHighAccuracy: false, timeout: 10000, maximumAge: 120_000 }
+          );
+        });
+      }
+      const noteTrim = punchNote.trim();
+      const note = noteTrim.length > 0 ? noteTrim.slice(0, 500) : null;
       await setDoc(
         entryRef!,
         {
@@ -151,17 +222,33 @@ export function Today() {
           breaks: [],
           workLocation: loc,
           updatedAt: ts,
+          note,
+          clockInGeo,
         },
         { merge: true }
       );
     });
+    setPunchNote('');
   }
 
   async function startBreak() {
+    const prev = entryLatest.current;
+    if (!prev?.clockIn || prev.clockOut) return;
+    const minGap = teamSettings.policies.minBreakMinutesBetween;
+    if (typeof minGap === 'number' && minGap > 0) {
+      let lastEndMs = 0;
+      for (const b of prev.breaks) {
+        if (b.end) lastEndMs = Math.max(lastEndMs, b.end.toMillis());
+      }
+      if (lastEndMs > 0 && Date.now() - lastEndMs < minGap * 60_000) {
+        setError(`Team policy: wait at least ${minGap} minutes between breaks.`);
+        return;
+      }
+    }
     await write(async () => {
-      const prev = entryLatest.current;
-      if (!prev?.clockIn || prev.clockOut) return;
-      const breaks = [...prev.breaks, { start: Timestamp.now(), end: null }];
+      const cur = entryLatest.current;
+      if (!cur?.clockIn || cur.clockOut) return;
+      const breaks = [...cur.breaks, { start: Timestamp.now(), end: null }];
       await updateDoc(entryRef!, { breaks, updatedAt: Timestamp.now() });
     });
   }
@@ -215,6 +302,26 @@ export function Today() {
         : null;
 
   const pageBusy = snapshotLoading;
+
+  const breakTooLong = useMemo(() => {
+    if (!onBreak || !entry) return false;
+    const maxM = teamSettings.policies.maxBreakMinutes;
+    if (typeof maxM !== 'number' || maxM <= 0) return false;
+    const idx = activeBreakIndex(entry.breaks);
+    if (idx < 0) return false;
+    const b = entry.breaks[idx]!;
+    return Date.now() - b.start.toMillis() > maxM * 60_000;
+  }, [onBreak, entry, teamSettings.policies.maxBreakMinutes, tick]);
+
+  const shiftLongWarning = useMemo(() => {
+    if (!working || !entry?.clockIn) return null;
+    const policyH = teamSettings.policies.autoClockOutHours;
+    const threshold =
+      typeof policyH === 'number' && policyH > 0 ? policyH : 12;
+    const grossH = grossShiftMs(entry, now) / (1000 * 60 * 60);
+    if (grossH < threshold) return null;
+    return { threshold, grossH };
+  }, [working, entry, now, teamSettings.policies.autoClockOutHours]);
 
   return (
     <div className="page attendance-page">
@@ -278,23 +385,46 @@ export function Today() {
 
         <div className="attendance-hero__actions">
           {canClockIn ? (
-            <div className="attendance-loc-btns">
-              <button
-                type="button"
-                className="btn btn-primary attendance-loc-btns__btn"
-                disabled={pending || pageBusy}
-                onClick={() => void clockIn('office')}
-              >
-                Office
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary attendance-loc-btns__btn"
-                disabled={pending || pageBusy}
-                onClick={() => void clockIn('remote')}
-              >
-                Remote
-              </button>
+            <div className="today-clock-in-stack">
+              <label className="today-punch-note-label">
+                <span className="muted small">Note (optional)</span>
+                <textarea
+                  className="today-punch-note"
+                  rows={2}
+                  maxLength={500}
+                  value={punchNote}
+                  onChange={(e) => setPunchNote(e.target.value)}
+                  placeholder="Visible to you and team leads"
+                  disabled={pending || pageBusy}
+                />
+              </label>
+              <label className="today-geo-check muted small">
+                <input
+                  type="checkbox"
+                  checked={includeGeoOnClockIn}
+                  onChange={(e) => setIncludeGeoOnClockIn(e.target.checked)}
+                  disabled={pending || pageBusy}
+                />
+                Save approximate location on clock-in
+              </label>
+              <div className="attendance-loc-btns">
+                <button
+                  type="button"
+                  className="btn btn-primary attendance-loc-btns__btn"
+                  disabled={pending || pageBusy}
+                  onClick={() => void clockIn('office')}
+                >
+                  Office
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary attendance-loc-btns__btn"
+                  disabled={pending || pageBusy}
+                  onClick={() => void clockIn('remote')}
+                >
+                  Remote
+                </button>
+              </div>
             </div>
           ) : (
             <div className="attendance-inout-stack">
@@ -345,6 +475,18 @@ export function Today() {
         </div>
       </div>
 
+      {breakTooLong && (
+        <p className="attendance-banner attendance-banner--warn" role="status">
+          Your break is longer than the team&apos;s maximum. End break when you&apos;re ready.
+        </p>
+      )}
+      {shiftLongWarning && (
+        <p className="attendance-banner attendance-banner--warn" role="status">
+          You&apos;ve been clocked in about {shiftLongWarning.grossH.toFixed(1)} hours (policy reminder after{' '}
+          {shiftLongWarning.threshold}h). Please clock out if you&apos;re done.
+        </p>
+      )}
+
       {error && <p className="error">{error}</p>}
 
       <section className="attendance-table-card" aria-labelledby="attendance-recent-heading">
@@ -376,7 +518,15 @@ export function Today() {
                 </tr>
               ) : (
                 mergedRows.map(({ dateId: rowId, entry: rowEntry }) => {
-                  const pill = attendanceRowPill(rowId, dateId, rowEntry);
+                  const to = pillTimeOffOpts(rowId, holidays, pto);
+                  const pill = attendanceRowPill(
+                    rowId,
+                    dateId,
+                    rowEntry,
+                    expectedStart.hour,
+                    expectedStart.minute,
+                    to.isTeamHoliday || to.isMemberPto ? to : undefined
+                  );
                   const nowForRow = rowId === dateId ? now : new Date();
                   const duration =
                     rowEntry?.clockIn
@@ -406,7 +556,8 @@ export function Today() {
           </table>
         </div>
         <p className="attendance-table-foot muted small">
-          Status uses <strong>9:00 AM</strong> local on each day: on time = Present, after = Late.
+          Status uses <strong>{formatHourMinute(expectedStart.hour, expectedStart.minute)}</strong> local on each
+          day: on time = Present, after = Late. Holidays / PTO override status when configured on the team.
         </p>
       </section>
     </div>

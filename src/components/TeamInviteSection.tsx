@@ -46,13 +46,13 @@ export function TeamInviteSection() {
 
   return (
     <section className="teams-invite-section" aria-labelledby="teams-invite-heading">
-      <h2 id="teams-invite-heading" className="teams-section-title">
+      {/* <h2 id="teams-invite-heading" className="teams-section-title">
         Invite teammates
       </h2>
       <p className="page-sub teams-invite-sub">
         Share the join link (best) or the team ID plus invite code. It&apos;s stored on your team—nothing to
         generate.
-      </p>
+      </p> */}
       <div className="card invite-card teams-invite-card">
         {loading ? (
           <div className="invite-grid" aria-busy="true">
@@ -77,21 +77,21 @@ export function TeamInviteSection() {
             <div className="invite-field-card">
               <span className="invite-label">Invite code</span>
               <code className="invite-value">{inviteCode}</code>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(inviteCode)}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(inviteCode)}>
                 <Copy size={16} /> Copy
               </button>
             </div>
             <div className="invite-field-card">
               <span className="invite-label">Team ID</span>
               <code className="invite-value invite-value--sm">{teamId}</code>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(teamId)}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(teamId)}>
                 <Copy size={16} /> Copy
               </button>
             </div>
             <div className="invite-field-card invite-field-card--wide">
               <span className="invite-label">Join link</span>
               <code className="invite-value invite-value--sm">{joinUrl}</code>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void copy(joinUrl)}>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => void copy(joinUrl)}>
                 <Copy size={16} /> Copy
               </button>
             </div>

@@ -4,7 +4,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { RequireTeam } from './components/RequireTeam';
-import { RequireAdmin } from './components/RequireAdmin';
+import { RequireManagerOrAdmin } from './components/RequireManagerOrAdmin';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Onboarding } from './pages/Onboarding';
@@ -36,7 +36,7 @@ export default function App() {
                   <Route path="today" element={<Today />} />
                   <Route path="history" element={<History />} />
                 </Route>
-                <Route element={<RequireAdmin />}>
+                <Route element={<RequireManagerOrAdmin />}>
                   <Route path="teams" element={<Teams />} />
                   <Route path="admin" element={<Navigate to="/teams" replace />} />
                   <Route path="invite" element={<Navigate to="/teams" replace />} />

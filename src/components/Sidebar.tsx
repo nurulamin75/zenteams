@@ -30,7 +30,7 @@ export function Sidebar({
 }) {
   const { teamId, teamName, teams, role, logout, switchTeam } = useAuth();
   const hasTeam = Boolean(teamId);
-  const isAdmin = role === 'admin';
+  const canLeadTeam = role === 'admin' || role === 'manager';
 
   async function handleLogout() {
     onClose();
@@ -91,7 +91,7 @@ export function Sidebar({
                 <History size={20} strokeWidth={2} />
                 <span className="sidebar-link-text">History</span>
               </NavLink>
-              {isAdmin && (
+              {canLeadTeam && (
                 <>
                   <NavLink to="/teams" className={linkClass} onClick={onClose} title="Teams">
                     <Users size={20} strokeWidth={2} />
