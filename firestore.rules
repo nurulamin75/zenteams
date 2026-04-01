@@ -1,0 +1,66 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    function memberDoc(teamId) {
+      return get(/databases/$(database)/documents/teams/$(teamId)/members/$(request.auth.uid));
+    }
+
+    function isTeamMember(teamId) {
+      return isSignedIn() && memberDoc(teamId).data != null;
+    }
+
+    function isTeamAdmin(teamId) {
+      return isSignedIn() && memberDoc(teamId).data.role == 'admin';
+    }
+
+    match /teams/{teamId} {
+      allow read: if isTeamMember(teamId);
+      allow create: if isSignedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.inviteCode is string
+        && request.resource.data.name is string
+        && request.resource.data.createdAt == request.time;
+      allow update: if isTeamAdmin(teamId);
+      allow delete: if false;
+
+      match /members/{userId} {
+        allow read: if isTeamMember(teamId)
+          || (isSignedIn() && request.auth.uid == userId);
+        allow create: if isSignedIn() && request.auth.uid == userId
+          && request.resource.data.role is string
+          && request.resource.data.displayName is string
+          && request.resource.data.email is string
+          && request.resource.data.joinedAt == request.time
+          && (
+            (request.resource.data.role == 'admin'
+              && getAfter(/databases/$(database)/documents/teams/$(teamId)).data.createdBy == request.auth.uid)
+            || (request.resource.data.role == 'member'
+              && get(/databases/$(database)/documents/teams/$(teamId)).data.inviteCode == request.resource.data.inviteCode)
+          );
+        allow update: if isSignedIn() && request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.joinedAt == resource.data.joinedAt
+          && request.resource.data.email == resource.data.email
+          && (!('inviteCode' in resource.data) || request.resource.data.inviteCode == resource.data.inviteCode);
+        allow delete: if false;
+      }
+
+      match /days/{dateId}/entries/{entryUserId} {
+        allow read: if isTeamAdmin(teamId)
+          || (isTeamMember(teamId) && request.auth.uid == entryUserId);
+        allow create, update: if isTeamMember(teamId)
+          && request.auth.uid == entryUserId
+          && dateId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+        allow delete: if false;
+      }
+    }
+  }
+}
