@@ -15,7 +15,6 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
-import { Users } from 'lucide-react';
 import { TeamInviteSection } from '../components/TeamInviteSection';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
