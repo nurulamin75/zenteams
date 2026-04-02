@@ -1,13 +1,13 @@
 import { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
-import { BarChart3, History, LogOut, Settings } from 'lucide-react';
+import { BarChart3, CalendarRange, FileBarChart, History, LogOut, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { TeamSwitcher } from './TeamSwitcher';
 
 export function MobileMoreMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { teamId, teamName, teams, role, logout, switchTeam } = useAuth();
   const hasTeam = Boolean(teamId);
-  const canLeadTeam = role === 'admin' || role === 'manager';
+  const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
 
   useEffect(() => {
     if (!open) return;
@@ -64,15 +64,23 @@ export function MobileMoreMenu({ open, onClose }: { open: boolean; onClose: () =
               <History size={20} strokeWidth={2} aria-hidden />
               Attendance history
             </NavLink>
+            <NavLink to="/calendar" className="mobile-more-sheet__link" onClick={onClose}>
+              <CalendarRange size={20} strokeWidth={2} aria-hidden />
+              Calendar
+            </NavLink>
+            <NavLink to="/settings" className="mobile-more-sheet__link" onClick={onClose}>
+              <Settings size={20} strokeWidth={2} aria-hidden />
+              Settings
+            </NavLink>
             {canLeadTeam && (
               <>
-                <NavLink to="/settings" className="mobile-more-sheet__link" onClick={onClose}>
-                  <Settings size={20} strokeWidth={2} aria-hidden />
-                  Settings
-                </NavLink>
                 <NavLink to="/analytics" className="mobile-more-sheet__link" onClick={onClose}>
                   <BarChart3 size={20} strokeWidth={2} aria-hidden />
                   Analytics
+                </NavLink>
+                <NavLink to="/reports" className="mobile-more-sheet__link" onClick={onClose}>
+                  <FileBarChart size={20} strokeWidth={2} aria-hidden />
+                  Reports
                 </NavLink>
               </>
             )}

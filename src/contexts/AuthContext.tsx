@@ -33,6 +33,8 @@ interface AuthContextValue {
   inviteCode: string | null;
   teams: UserTeam[];
   role: MemberRole | null;
+  canManageTeam: boolean;
+  isAuditor: boolean;
   memberDisplayName: string | null;
   teamSettings: TeamSettings;
   memberScheduleOverride: { hour: number; minute: number } | null;
@@ -216,6 +218,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth);
   }, []);
 
+  const canManageTeam = role === 'admin' || role === 'manager';
+  const isAuditor = role === 'auditor';
+
   const value = useMemo(
     () => ({
       user,
@@ -225,6 +230,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       inviteCode,
       teams,
       role,
+      canManageTeam,
+      isAuditor,
       memberDisplayName,
       teamSettings,
       memberScheduleOverride,
@@ -245,6 +252,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       inviteCode,
       teams,
       role,
+      canManageTeam,
+      isAuditor,
       memberDisplayName,
       teamSettings,
       memberScheduleOverride,

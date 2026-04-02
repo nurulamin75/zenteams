@@ -32,6 +32,7 @@ export function parseTimesheetLine(id: string, data: Record<string, unknown>): T
   const startTimeLocal = data.startTimeLocal;
   const endTimeLocal = data.endTimeLocal;
   const tags = data.tags;
+  const projectId = data.projectId;
   return {
     id,
     userId,
@@ -51,6 +52,8 @@ export function parseTimesheetLine(id: string, data: Record<string, unknown>): T
         : null,
     tags: typeof tags === 'string' && tags.length > 0 ? tags.slice(0, MAX_TAGS) : null,
     notes: typeof notes === 'string' && notes.length > 0 ? notes : null,
+    projectId:
+      typeof projectId === 'string' && projectId.length > 0 && projectId.length <= 120 ? projectId : null,
     createdAt: createdAt as Timestamp,
     updatedAt: updatedAt as Timestamp,
   };

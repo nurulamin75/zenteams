@@ -12,6 +12,7 @@ import {
   setDoc,
   Timestamp,
   updateDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { Users } from 'lucide-react';
@@ -30,7 +31,7 @@ import {
 } from '../lib/dayEntry';
 import { localDateId } from '../lib/date';
 import { generateInviteCode } from '../lib/invite';
-import type { DayEntry, MemberRole, TimeOffKind } from '../types';
+import type { DayEntry, MemberRole, TeamProject, TimeOffKind, WeeklyExpectedStartMap } from '../types';
 
 function escapeCsvCell(s: string): string {
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -43,6 +44,7 @@ interface RosterRow {
   email: string;
   role: MemberRole;
   entry: DayEntry | null;
+  timezone?: string | null;
 }
 
 interface TimeOffRow {
@@ -54,21 +56,33 @@ interface TimeOffRow {
   at: Timestamp;
 }
 
-interface AuditRow {
+type TeamsTab =
+  | 'general'
+  | 'roster'
+  | 'directory'
+  | 'invite'
+  | 'timeoff'
+  | 'settings'
+  | 'backup'
+  | 'approvals'
+  | 'projects';
+
+interface ApprovalDoc {
   id: string;
-  action: string;
-  actorUid: string;
-  at: Timestamp;
-  meta: Record<string, unknown>;
+  requesterUid: string;
+  dateId: string;
+  label: string | null;
+  note: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: Timestamp;
 }
 
-type TeamsTab = 'general' | 'roster' | 'invite' | 'timeoff' | 'audit' | 'settings' | 'backup';
-
 export function Teams() {
-  const { user, teamId, role, teamName, teamSettings, refreshTeam } = useAuth();
+  const { user, teamId, role, teamName, teamSettings, refreshTeam, canManageTeam, isAuditor } = useAuth();
   const isAdmin = role === 'admin';
+  const canLeadMutate = canManageTeam && !isAuditor;
 
-  const [tab, setTab] = useState<TeamsTab>('roster');
+  const [tab, setTab] = useState<TeamsTab>('general');
   const [dateId, setDateId] = useState(() => localDateId());
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [memberOptions, setMemberOptions] = useState<{ userId: string; displayName: string }[]>([]);
@@ -82,9 +96,6 @@ export function Teams() {
   const [toUserId, setToUserId] = useState('');
   const [toLabel, setToLabel] = useState('');
   const [toPending, setToPending] = useState(false);
-
-  const [auditRows, setAuditRows] = useState<AuditRow[]>([]);
-  const [auditLoading, setAuditLoading] = useState(false);
 
   const [setHour, setSetHour] = useState(String(teamSettings.expectedStartHour));
   const [setMinute, setSetMinute] = useState(String(teamSettings.expectedStartMinute));
@@ -115,6 +126,17 @@ export function Teams() {
   const [nameEditPending, setNameEditPending] = useState(false);
   const [removePendingUid, setRemovePendingUid] = useState<string | null>(null);
 
+  const [approvalRows, setApprovalRows] = useState<ApprovalDoc[]>([]);
+  const [approvalLoading, setApprovalLoading] = useState(false);
+
+  const [teamProjects, setTeamProjects] = useState<TeamProject[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projName, setProjName] = useState('');
+  const [projClient, setProjClient] = useState('');
+  const [projPending, setProjPending] = useState(false);
+
+  const [weeklyDraft, setWeeklyDraft] = useState<Record<string, { h: string; m: string }>>({});
+
   useEffect(() => {
     setSetHour(String(teamSettings.expectedStartHour));
     setSetMinute(String(teamSettings.expectedStartMinute));
@@ -128,10 +150,23 @@ export function Teams() {
   }, [teamName]);
 
   useEffect(() => {
-    if (!isAdmin && (tab === 'general' || tab === 'settings' || tab === 'backup')) {
-      setTab('roster');
-    }
+    const adminOnly: TeamsTab[] = ['general', 'settings', 'backup', 'projects'];
+    if (!isAdmin && adminOnly.includes(tab)) setTab('roster');
   }, [isAdmin, tab]);
+
+  useEffect(() => {
+    const ws = teamSettings.weeklySchedule;
+    if (!ws) {
+      setWeeklyDraft({});
+      return;
+    }
+    const next: Record<string, { h: string; m: string }> = {};
+    for (const k of ['0', '1', '2', '3', '4', '5', '6'] as const) {
+      const d = ws[k];
+      if (d) next[k] = { h: String(d.hour), m: String(d.minute) };
+    }
+    setWeeklyDraft(next);
+  }, [teamSettings.weeklySchedule]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -169,6 +204,7 @@ export function Teams() {
           email: (data.email as string) ?? '',
           role: (data.role as MemberRole) ?? 'member',
           entry: entryByUserId.get(uid) ?? null,
+          timezone: (data.timezone as string) ?? null,
         };
       });
       list.sort((a, b) => a.displayName.localeCompare(b.displayName));
@@ -211,33 +247,154 @@ export function Teams() {
     if (tab === 'timeoff' && teamId) void loadTimeOff();
   }, [tab, teamId, loadTimeOff]);
 
-  const loadAudit = useCallback(async () => {
+  const loadApprovals = useCallback(async () => {
     if (!teamId) return;
-    setAuditLoading(true);
+    setApprovalLoading(true);
     try {
       const snap = await getDocs(
-        query(collection(db, 'teams', teamId, 'auditLogs'), orderBy('at', 'desc'), limit(100))
+        query(collection(db, 'teams', teamId, 'approvalRequests'), orderBy('createdAt', 'desc'), limit(80))
       );
-      setAuditRows(
+      setApprovalRows(
         snap.docs.map((d) => {
           const x = d.data();
           return {
             id: d.id,
-            action: x.action as string,
-            actorUid: x.actorUid as string,
-            at: x.at as Timestamp,
-            meta: (x.meta as Record<string, unknown>) ?? {},
+            requesterUid: x.requesterUid as string,
+            dateId: x.dateId as string,
+            label: (x.label as string) ?? null,
+            note: (x.note as string) ?? null,
+            status: x.status as ApprovalDoc['status'],
+            createdAt: x.createdAt as Timestamp,
           };
         })
       );
     } finally {
-      setAuditLoading(false);
+      setApprovalLoading(false);
     }
   }, [teamId]);
 
   useEffect(() => {
-    if (tab === 'audit' && teamId) void loadAudit();
-  }, [tab, teamId, loadAudit]);
+    if (tab === 'approvals' && teamId) void loadApprovals();
+  }, [tab, teamId, loadApprovals]);
+
+  const loadProjects = useCallback(async () => {
+    if (!teamId) return;
+    setProjectsLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'teams', teamId, 'projects'));
+      const list: TeamProject[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          id: d.id,
+          name: x.name as string,
+          client: typeof x.client === 'string' ? x.client : '',
+          archived: Boolean(x.archived),
+          createdAt: x.createdAt as Timestamp,
+        };
+      });
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setTeamProjects(list);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    if (tab === 'projects' && teamId) void loadProjects();
+  }, [tab, teamId, loadProjects]);
+
+  function buildWeeklySchedulePayload(): WeeklyExpectedStartMap | null {
+    const out: WeeklyExpectedStartMap = {};
+    for (const k of ['0', '1', '2', '3', '4', '5', '6'] as const) {
+      const v = weeklyDraft[k];
+      if (!v?.h?.trim()) continue;
+      const h = Number.parseInt(v.h, 10);
+      const mi = Number.parseInt(v.m?.trim() ? v.m : '0', 10);
+      if (h >= 0 && h <= 23 && mi >= 0 && mi <= 59) out[k] = { hour: h, minute: mi };
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+
+  async function approvePtoRequest(req: ApprovalDoc) {
+    if (!teamId || !user || !canLeadMutate || req.status !== 'pending') return;
+    setError('');
+    try {
+      const batch = writeBatch(db);
+      const aref = doc(db, 'teams', teamId, 'approvalRequests', req.id);
+      const toRef = doc(collection(db, 'teams', teamId, 'timeOff'));
+      batch.update(aref, {
+        status: 'approved',
+        reviewedByUid: user.uid,
+        reviewedAt: Timestamp.now(),
+      });
+      batch.set(toRef, {
+        dateId: req.dateId,
+        kind: 'pto',
+        userId: req.requesterUid,
+        label: req.label,
+        createdAt: Timestamp.now(),
+      });
+      await batch.commit();
+      await appendAuditLog(teamId, user.uid, 'pto_request_approved', { requestId: req.id, dateId: req.dateId });
+      await loadApprovals();
+      await loadTimeOff();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Approve failed');
+    }
+  }
+
+  async function rejectPtoRequest(req: ApprovalDoc) {
+    if (!teamId || !user || !canLeadMutate || req.status !== 'pending') return;
+    setError('');
+    try {
+      await updateDoc(doc(db, 'teams', teamId, 'approvalRequests', req.id), {
+        status: 'rejected',
+        reviewedByUid: user.uid,
+        reviewedAt: Timestamp.now(),
+      });
+      await appendAuditLog(teamId, user.uid, 'pto_request_rejected', { requestId: req.id });
+      await loadApprovals();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reject failed');
+    }
+  }
+
+  async function addTeamProject() {
+    if (!teamId || !user || !isAdmin) return;
+    const name = projName.trim();
+    if (!name) {
+      setError('Project name is required');
+      return;
+    }
+    setProjPending(true);
+    setError('');
+    try {
+      await addDoc(collection(db, 'teams', teamId, 'projects'), {
+        name,
+        client: projClient.trim(),
+        archived: false,
+        createdAt: Timestamp.now(),
+      });
+      await appendAuditLog(teamId, user.uid, 'project_created', { name });
+      setProjName('');
+      setProjClient('');
+      await loadProjects();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not add project');
+    } finally {
+      setProjPending(false);
+    }
+  }
+
+  async function setProjectArchived(p: TeamProject, archived: boolean) {
+    if (!teamId || !user || !isAdmin) return;
+    try {
+      await updateDoc(doc(db, 'teams', teamId, 'projects', p.id), { archived });
+      await loadProjects();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed');
+    }
+  }
 
   function downloadRosterCsv() {
     if (!teamId) return;
@@ -288,6 +445,7 @@ export function Teams() {
       await updateDoc(doc(db, 'teams', teamId), {
         expectedStartHour: h,
         expectedStartMinute: m,
+        weeklySchedule: buildWeeklySchedulePayload(),
         policies: {
           maxBreakMinutes: polMaxBreak ? Number(polMaxBreak) : null,
           minBreakMinutesBetween: polMinBetween ? Number(polMinBetween) : null,
@@ -304,7 +462,7 @@ export function Teams() {
   }
 
   async function addTimeOff() {
-    if (!teamId || !user) return;
+    if (!teamId || !user || !canLeadMutate) return;
     setToPending(true);
     setError('');
     try {
@@ -326,7 +484,7 @@ export function Teams() {
   }
 
   async function removeTimeOff(id: string) {
-    if (!teamId || !user) return;
+    if (!teamId || !user || !canLeadMutate) return;
     try {
       await deleteDoc(doc(db, 'teams', teamId, 'timeOff', id));
       await appendAuditLog(teamId, user.uid, 'time_off_removed', { id });
@@ -555,20 +713,23 @@ export function Teams() {
 
   const tabButtons = useMemo(() => {
     const base: { id: TeamsTab; label: string }[] = [];
-    if (isAdmin) {
-      base.push({ id: 'general', label: 'General' });
-    }
+    if (isAdmin) base.push({ id: 'general', label: 'General' });
     base.push(
       { id: 'roster', label: 'Roster' },
+      { id: 'directory', label: 'Directory' },
       { id: 'invite', label: 'Invite' },
-      { id: 'timeoff', label: 'Time off' },
-      { id: 'audit', label: 'Audit log' }
+      { id: 'timeoff', label: 'Time off' }
     );
+    if (canManageTeam) base.push({ id: 'approvals', label: 'Approvals' });
     if (isAdmin) {
-      base.push({ id: 'settings', label: 'Policies' }, { id: 'backup', label: 'Backup' });
+      base.push(
+        { id: 'settings', label: 'Policies' },
+        { id: 'projects', label: 'Projects' },
+        { id: 'backup', label: 'Backup' }
+      );
     }
     return base;
-  }, [isAdmin]);
+  }, [isAdmin, canManageTeam]);
 
   return (
     <div className="page teams-page">
@@ -752,6 +913,7 @@ export function Teams() {
                           >
                             <option value="member">Member</option>
                             <option value="manager">Manager</option>
+                            <option value="auditor">Auditor</option>
                             <option value="admin">Admin</option>
                           </select>
                         ) : (
@@ -789,9 +951,11 @@ export function Teams() {
                       <td>{r.entry ? dayWorkLocationSummary(r.entry) : '—'}</td>
                       <td>
                         <div className="teams-row-actions">
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openAdjust(r)}>
-                            Adjust
-                          </button>
+                          {canLeadMutate && (
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openAdjust(r)}>
+                              Adjust
+                            </button>
+                          )}
                           {isAdmin && r.userId !== user?.uid && (
                             <button
                               type="button"
@@ -813,6 +977,115 @@ export function Teams() {
         </div>
       )}
 
+      {tab === 'directory' && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">People</p>
+            <h2 className="teams-panel-title">Member directory</h2>
+            <p className="teams-panel-lede muted small">
+              Roles and timezones. Members set timezone in Settings; admins can edit on the member document in Firestore if
+              needed.
+            </p>
+          </header>
+          <div className="teams-directory-grid">
+            {rows.map((r) => (
+              <div key={r.userId} className="teams-directory-card">
+                <p className="teams-directory-name">{r.displayName}</p>
+                <p className="muted small">{r.email}</p>
+                <p className="teams-directory-role">{r.role}</p>
+                {r.timezone ? <p className="muted small">TZ: {r.timezone}</p> : <p className="muted small">Timezone not set</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {tab === 'approvals' && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head teams-panel-head--toolbar">
+            <div>
+              <p className="teams-panel-eyebrow">Workflow</p>
+              <h2 className="teams-panel-title">PTO requests</h2>
+              <p className="teams-panel-lede muted small">Submitted from Settings. Approve to create PTO for that day.</p>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadApprovals()}>
+              Refresh
+            </button>
+          </header>
+          {approvalLoading ? (
+            <p className="muted teams-panel-loading">Loading…</p>
+          ) : approvalRows.length === 0 ? (
+            <p className="muted">No requests yet.</p>
+          ) : (
+            <ul className="teams-approval-list">
+              {approvalRows.map((req) => (
+                <li key={req.id} className="teams-approval-item">
+                  <div>
+                    <strong>{req.dateId}</strong> · {rows.find((x) => x.userId === req.requesterUid)?.displayName ?? req.requesterUid.slice(0, 8)}
+                    {req.label ? ` · ${req.label}` : ''}
+                    <span className={`teams-approval-status teams-approval-status--${req.status}`}>{req.status}</span>
+                    {req.note ? <p className="muted small">{req.note}</p> : null}
+                  </div>
+                  {req.status === 'pending' && canLeadMutate && (
+                    <div className="teams-row-actions">
+                      <button type="button" className="btn btn-primary btn-sm" onClick={() => void approvePtoRequest(req)}>
+                        Approve
+                      </button>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => void rejectPtoRequest(req)}>
+                        Reject
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {tab === 'projects' && isAdmin && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Cost centers</p>
+            <h2 className="teams-panel-title">Projects</h2>
+            <p className="teams-panel-lede muted small">Link timesheet lines to a project (name + default client).</p>
+          </header>
+          <div className="form teams-profile-form" style={{ maxWidth: '28rem' }}>
+            <label>
+              Name
+              <input type="text" value={projName} onChange={(e) => setProjName(e.target.value)} placeholder="e.g. Website redesign" />
+            </label>
+            <label>
+              Default client (optional)
+              <input type="text" value={projClient} onChange={(e) => setProjClient(e.target.value)} />
+            </label>
+            <div className="teams-actions">
+              <button type="button" className="btn btn-primary" disabled={projPending} onClick={() => void addTeamProject()}>
+                {projPending ? 'Adding…' : 'Add project'}
+              </button>
+            </div>
+          </div>
+          {projectsLoading ? (
+            <p className="muted teams-panel-loading">Loading…</p>
+          ) : (
+            <ul className="teams-project-list">
+              {teamProjects.map((p) => (
+                <li key={p.id} className="teams-project-item">
+                  <span>
+                    <strong>{p.name}</strong>
+                    {p.client ? ` · ${p.client}` : ''}
+                    {p.archived ? <span className="muted small"> (archived)</span> : null}
+                  </span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void setProjectArchived(p, !p.archived)}>
+                    {p.archived ? 'Restore' : 'Archive'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {tab === 'timeoff' && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
@@ -820,44 +1093,48 @@ export function Teams() {
             <h2 className="teams-panel-title">Time off &amp; holidays</h2>
             <p className="teams-panel-lede muted small">Holidays: whole team. PTO: pick a member.</p>
           </header>
-          <div className="admin-toolbar teams-toolbar teams-timeoff-form">
-            <label>
-              Date
-              <input type="date" value={toDateId} onChange={(e) => setToDateId(e.target.value)} />
-            </label>
-            <label>
-              Type
-              <select className="history-select" value={toKind} onChange={(e) => setToKind(e.target.value as TimeOffKind)}>
-                <option value="holiday">Holiday (whole team)</option>
-                <option value="pto">PTO (one member)</option>
-              </select>
-            </label>
-            {toKind === 'pto' && (
+          {canLeadMutate ? (
+            <div className="admin-toolbar teams-toolbar teams-timeoff-form">
               <label>
-                Member
-                <select className="history-select" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
-                  <option value="">Select…</option>
-                  {memberOptions.map((r) => (
-                    <option key={r.userId} value={r.userId}>
-                      {r.displayName}
-                    </option>
-                  ))}
+                Date
+                <input type="date" value={toDateId} onChange={(e) => setToDateId(e.target.value)} />
+              </label>
+              <label>
+                Type
+                <select className="history-select" value={toKind} onChange={(e) => setToKind(e.target.value as TimeOffKind)}>
+                  <option value="holiday">Holiday (whole team)</option>
+                  <option value="pto">PTO (one member)</option>
                 </select>
               </label>
-            )}
-            <label className="teams-timeoff-label-wide">
-              Label (optional)
-              <input type="text" value={toLabel} onChange={(e) => setToLabel(e.target.value)} placeholder="e.g. New Year" />
-            </label>
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              disabled={toPending || (toKind === 'pto' && !toUserId)}
-              onClick={() => void addTimeOff()}
-            >
-              Add
-            </button>
-          </div>
+              {toKind === 'pto' && (
+                <label>
+                  Member
+                  <select className="history-select" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
+                    <option value="">Select…</option>
+                    {memberOptions.map((r) => (
+                      <option key={r.userId} value={r.userId}>
+                        {r.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="teams-timeoff-label-wide">
+                Label (optional)
+                <input type="text" value={toLabel} onChange={(e) => setToLabel(e.target.value)} placeholder="e.g. New Year" />
+              </label>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={toPending || (toKind === 'pto' && !toUserId)}
+                onClick={() => void addTimeOff()}
+              >
+                Add
+              </button>
+            </div>
+          ) : (
+            <p className="muted small teams-panel-loading">Read-only: time off is managed by admins and managers.</p>
+          )}
           {timeOffLoading ? (
             <p className="muted teams-panel-loading">Loading…</p>
           ) : (
@@ -869,52 +1146,14 @@ export function Teams() {
                     {t.userId ? ` · ${t.userId}` : ''}
                     {t.label ? ` · ${t.label}` : ''}
                   </span>
-                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => void removeTimeOff(t.id)}>
-                    Remove
-                  </button>
+                  {canLeadMutate && (
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => void removeTimeOff(t.id)}>
+                      Remove
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
-          )}
-        </div>
-      )}
-
-      {tab === 'audit' && (
-        <div className="card wide teams-tab-panel teams-panel">
-          <header className="teams-panel-head teams-panel-head--toolbar">
-            <div>
-              <p className="teams-panel-eyebrow">Security</p>
-              <h2 className="teams-panel-title">Audit log</h2>
-            </div>
-            <button type="button" className="btn btn-ghost btn-sm teams-audit-refresh" onClick={() => void loadAudit()}>
-              Refresh
-            </button>
-          </header>
-          {auditLoading ? (
-            <p className="muted teams-panel-loading">Loading…</p>
-          ) : (
-            <div className="table-wrap teams-table-wrap">
-              <table className="data-table teams-table">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Actor</th>
-                    <th>Action</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {auditRows.map((a) => (
-                    <tr key={a.id}>
-                      <td>{a.at?.toDate?.().toLocaleString() ?? '—'}</td>
-                      <td className="teams-mono">{a.actorUid.slice(0, 8)}…</td>
-                      <td>{a.action}</td>
-                      <td className="teams-mono small">{JSON.stringify(a.meta)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
           )}
         </div>
       )}
@@ -938,6 +1177,42 @@ export function Teams() {
                 Minute
                 <input type="number" min={0} max={59} value={setMinute} onChange={(e) => setSetMinute(e.target.value)} />
               </label>
+            </div>
+            <p className="muted small teams-weekly-hint">
+              Optional per weekday (0–23 / 0–59). Leave blank to use the default above for that day.
+            </p>
+            <div className="teams-weekly-grid">
+              {(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const).map((label, i) => {
+                const key = String(i);
+                const v = weeklyDraft[key] ?? { h: '', m: '' };
+                return (
+                  <div key={key} className="teams-weekly-row">
+                    <span className="teams-weekly-label">{label}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      placeholder="H"
+                      aria-label={`${label} hour`}
+                      value={v.h}
+                      onChange={(e) =>
+                        setWeeklyDraft((prev) => ({ ...prev, [key]: { ...v, h: e.target.value } }))
+                      }
+                    />
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      placeholder="M"
+                      aria-label={`${label} minute`}
+                      value={v.m}
+                      onChange={(e) =>
+                        setWeeklyDraft((prev) => ({ ...prev, [key]: { ...v, m: e.target.value } }))
+                      }
+                    />
+                  </div>
+                );
+              })}
             </div>
             <label>
               Max single break (minutes, optional)

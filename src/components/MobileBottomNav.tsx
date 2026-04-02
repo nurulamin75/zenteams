@@ -19,11 +19,13 @@ export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
   const { teamId, role } = useAuth();
   const location = useLocation();
   const hasTeam = Boolean(teamId);
-  const canLeadTeam = role === 'admin' || role === 'manager';
+  const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
   const moreTabActive =
     location.pathname === '/analytics' ||
+    location.pathname === '/reports' ||
+    location.pathname === '/calendar' ||
     location.pathname === '/history' ||
-    (canLeadTeam && location.pathname === '/settings');
+    location.pathname === '/settings';
 
   if (!hasTeam) {
     return (

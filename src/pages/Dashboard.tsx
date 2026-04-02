@@ -76,7 +76,7 @@ export function Dashboard() {
         getDoc(doc(db, 'teams', teamId, 'days', d, 'entries', user.uid))
       );
       const tail: Promise<QuerySnapshot>[] = [];
-      if (role === 'admin' || role === 'manager') {
+      if (role === 'admin' || role === 'manager' || role === 'auditor') {
         tail.push(getDocs(collection(db, 'teams', teamId, 'members')));
         tail.push(getDocs(collection(db, 'teams', teamId, 'days', dateId, 'entries')));
       }
@@ -85,7 +85,7 @@ export function Dashboard() {
       const entrySnaps = snapshots.slice(0, n) as DocumentSnapshot[];
       let membersSnap: QuerySnapshot | null = null;
       let entriesSnap: QuerySnapshot | null = null;
-      if ((role === 'admin' || role === 'manager') && tail.length === 2) {
+      if ((role === 'admin' || role === 'manager' || role === 'auditor') && tail.length === 2) {
         membersSnap = snapshots[n] as QuerySnapshot;
         entriesSnap = snapshots[n + 1] as QuerySnapshot;
       }
@@ -175,8 +175,14 @@ export function Dashboard() {
       { to: '/history', label: 'Attendance history' },
       { to: '/settings', label: 'Settings' },
     ];
-    if (role === 'admin' || role === 'manager') {
-      return [...base, { to: '/teams', label: 'Teams' }, { to: '/analytics', label: 'Analytics' }];
+    if (role === 'admin' || role === 'manager' || role === 'auditor') {
+      return [
+        ...base,
+        { to: '/teams', label: 'Teams' },
+        { to: '/analytics', label: 'Analytics' },
+        { to: '/reports', label: 'Reports' },
+        { to: '/calendar', label: 'Calendar' },
+      ];
     }
     return base;
   }, [role]);
@@ -193,7 +199,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      {(role === 'admin' || role === 'manager') && (
+      {(role === 'admin' || role === 'manager' || role === 'auditor') && (
         <section className="card wide dashboard-team" aria-label="Team today">
           <p className="dashboard-team__eyebrow">Today · team</p>
           <div className="dashboard-team__grid">

@@ -2030,11 +2030,6 @@ html[data-theme='dark'] .teams-modal-backdrop {
   font-size: 0.75rem;
 }
 
-.teams-audit-refresh {
-  margin-bottom: 0;
-  flex-shrink: 0;
-}
-
 .teams-page .teams-invite-section {
   margin-bottom: 0;
 }
@@ -3717,4 +3712,221 @@ html[data-theme='dark'] .timesheet-req {
   margin-top: 1.25rem;
   padding-top: 1rem;
   border-top: 1px solid var(--border);
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.calendar-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.calendar-cell {
+  min-height: 4.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem;
+  background: var(--surface);
+}
+
+.calendar-cell--muted {
+  opacity: 0.42;
+}
+
+.calendar-cell--today {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.calendar-cell__num {
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.calendar-cell__dots {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.calendar-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 4px;
+  font-size: 0.58rem;
+  font-weight: 700;
+}
+
+.calendar-dot--holiday {
+  background: color-mix(in srgb, var(--accent-soft) 85%, var(--surface));
+  color: var(--accent);
+}
+
+.calendar-dot--pto {
+  background: color-mix(in srgb, var(--main-bg) 45%, var(--border));
+  color: var(--text);
+}
+
+.calendar-dot--mine {
+  outline: 1px solid var(--accent);
+}
+
+.calendar-dot--legend {
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.calendar-legend {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.teams-directory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.teams-directory-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+}
+
+.teams-directory-name {
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.teams-directory-role {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  margin: 0.35rem 0 0;
+  font-weight: 600;
+}
+
+.teams-approval-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.teams-approval-item {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 0.5rem;
+  background: var(--surface);
+}
+
+.teams-approval-status {
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.teams-approval-status--pending {
+  color: var(--accent);
+}
+
+.teams-approval-status--approved {
+  color: #16a34a;
+}
+
+html[data-theme='dark'] .teams-approval-status--approved {
+  color: #4ade80;
+}
+
+.teams-approval-status--rejected {
+  color: var(--text-muted);
+}
+
+.teams-project-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0 0;
+}
+
+.teams-project-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.teams-weekly-hint {
+  margin-top: 0;
+  margin-bottom: 0.65rem;
+}
+
+.teams-weekly-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.teams-weekly-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.teams-weekly-label {
+  width: 2rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.teams-weekly-row input {
+  width: 3.25rem;
+  padding: 0.35rem;
 }

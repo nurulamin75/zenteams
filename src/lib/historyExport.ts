@@ -3,7 +3,9 @@ import autoTable from 'jspdf-autotable';
 import { attendanceRowPill } from './attendance';
 import { formatDurationFromHours, formatLongDate } from './date';
 import { dayDisplayWorkLocation, dayHasPunches, entryWorkedHours, sessionInOutLines } from './dayEntry';
+import { effectiveExpectedStartForDate } from './teamSettings';
 import type { HistoryRow } from './historyRowsCache';
+import type { TeamSettings } from '../types';
 
 export type HistoryExportRow = {
   dateId: string;
@@ -31,14 +33,15 @@ function escapeHtml(s: string): string {
 export function buildHistoryExportRows(
   rows: HistoryRow[],
   todayDateId: string,
-  expectedHour: number,
-  expectedMinute: number,
+  teamSettings: TeamSettings,
+  memberScheduleOverride: { hour: number; minute: number } | null,
   holidays: Set<string>,
   pto: Set<string>
 ): HistoryExportRow[] {
   const now = new Date();
   return rows.map(({ dateId, entry }) => {
-    const pill = attendanceRowPill(dateId, todayDateId, entry, expectedHour, expectedMinute, {
+    const { hour, minute } = effectiveExpectedStartForDate(dateId, teamSettings, memberScheduleOverride);
+    const pill = attendanceRowPill(dateId, todayDateId, entry, hour, minute, {
       isTeamHoliday: holidays.has(dateId),
       isMemberPto: pto.has(dateId),
     });

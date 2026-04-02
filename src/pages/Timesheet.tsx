@@ -7,6 +7,7 @@ import {
   getDocs,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from 'firebase/firestore';
@@ -56,7 +57,7 @@ import {
   truncateField,
   truncateTags,
 } from '../lib/timesheetLine';
-import type { TimesheetLine } from '../types';
+import type { TeamProject, TimesheetLine } from '../types';
 
 const PAGE_SIZES = [10, 25, 50] as const;
 
@@ -72,6 +73,7 @@ interface ModalDraft {
   dateId: string;
   client: string;
   project: string;
+  projectId: string;
   task: string;
   activity: string;
   startTime: string;
@@ -86,6 +88,7 @@ function emptyModalDraft(dateId: string): ModalDraft {
     dateId,
     client: '',
     project: '',
+    projectId: '',
     task: '',
     activity: '',
     startTime: '',
@@ -124,6 +127,7 @@ export function Timesheet() {
     return { y: n.getFullYear(), m: n.getMonth() };
   });
   const [calendarSelectedDateId, setCalendarSelectedDateId] = useState<string | null>(() => localDateId());
+  const [teamProjects, setTeamProjects] = useState<TeamProject[]>([]);
 
   const exportFilenameBase = `zenteams-timesheet-${dateFrom}-${dateTo}`;
 
@@ -168,6 +172,32 @@ export function Timesheet() {
   useEffect(() => {
     void loadLines();
   }, [loadLines]);
+
+  useEffect(() => {
+    if (!teamId) {
+      setTeamProjects([]);
+      return;
+    }
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'teams', teamId, 'projects'));
+        const list: TeamProject[] = snap.docs.map((d) => {
+          const x = d.data();
+          return {
+            id: d.id,
+            name: x.name as string,
+            client: typeof x.client === 'string' ? x.client : '',
+            archived: Boolean(x.archived),
+            createdAt: x.createdAt as Timestamp,
+          };
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        setTeamProjects(list);
+      } catch {
+        setTeamProjects([]);
+      }
+    })();
+  }, [teamId]);
 
   useEffect(() => {
     writeStoredTimesheetView(view);
@@ -331,6 +361,7 @@ export function Timesheet() {
       dateId: line.dateId,
       client: line.client,
       project: line.project,
+      projectId: line.projectId ?? '',
       task: line.task,
       activity: line.activity,
       startTime: line.startTimeLocal ?? '',
@@ -400,6 +431,7 @@ export function Timesheet() {
         endTimeLocal,
         notes: notesTrim.length > 0 ? notesTrim : null,
         tags: tagsTrim.length > 0 ? tagsTrim : null,
+        projectId: modalDraft.projectId.trim() || null,
         updatedAt: serverTimestamp(),
       };
       if (editingId) {
@@ -1025,6 +1057,40 @@ export function Timesheet() {
                     onChange={(e) => setModalDraft((d) => ({ ...d, dateId: e.target.value }))}
                   />
                 </label>
+                {teamProjects.some((p) => !p.archived) && (
+                  <label className="timesheet-modal-field timesheet-modal-field--full">
+                    <span className="timesheet-field-label">Team project</span>
+                    <select
+                      className="history-select"
+                      value={modalDraft.projectId}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        if (!id) {
+                          setModalDraft((d) => ({ ...d, projectId: '' }));
+                          return;
+                        }
+                        const p = teamProjects.find((x) => x.id === id);
+                        if (!p) return;
+                        setModalDraft((d) => ({
+                          ...d,
+                          projectId: id,
+                          project: p.name,
+                          client: p.client || d.client,
+                        }));
+                      }}
+                    >
+                      <option value="">None (manual fields)</option>
+                      {teamProjects
+                        .filter((p) => !p.archived)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                            {p.client ? ` · ${p.client}` : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
                 <label className="timesheet-modal-field">
                   <span className="timesheet-field-label">Activity</span>
                   <input

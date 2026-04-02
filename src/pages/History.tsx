@@ -29,7 +29,7 @@ import {
   readHistoryRowsCache,
   writeHistoryRowsCache,
 } from '../lib/historyRowsCache';
-import { effectiveExpectedStart } from '../lib/teamSettings';
+import { effectiveExpectedStartForDate } from '../lib/teamSettings';
 import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
 import type { TimeOffKind } from '../types';
 
@@ -164,11 +164,6 @@ export function History() {
     return sortRowsByDate(f, sortDir);
   }, [rows, filter, sortDir]);
 
-  const expectedStart = useMemo(
-    () => effectiveExpectedStart(teamSettings, memberScheduleOverride),
-    [teamSettings, memberScheduleOverride]
-  );
-
   const { holidays, pto } = useMemo(
     () => timeOffSetsForMember(timeOffRows, user?.uid ?? ''),
     [timeOffRows, user?.uid]
@@ -176,15 +171,8 @@ export function History() {
 
   const exportRows = useMemo(
     () =>
-      buildHistoryExportRows(
-        displayRows,
-        todayId,
-        expectedStart.hour,
-        expectedStart.minute,
-        holidays,
-        pto
-      ),
-    [displayRows, todayId, expectedStart, holidays, pto]
+      buildHistoryExportRows(displayRows, todayId, teamSettings, memberScheduleOverride, holidays, pto),
+    [displayRows, todayId, teamSettings, memberScheduleOverride, holidays, pto]
   );
 
   const exportBase = useMemo(() => {
@@ -290,12 +278,13 @@ export function History() {
                 <tbody>
                   {displayRows.map(({ dateId, entry }) => {
                     const to = pillTimeOffOpts(dateId, holidays, pto);
+                    const expRow = effectiveExpectedStartForDate(dateId, teamSettings, memberScheduleOverride);
                     const pill = attendanceRowPill(
                       dateId,
                       todayId,
                       entry,
-                      expectedStart.hour,
-                      expectedStart.minute,
+                      expRow.hour,
+                      expRow.minute,
                       to.isTeamHoliday || to.isMemberPto ? to : undefined
                     );
                     const nowForRow = new Date();

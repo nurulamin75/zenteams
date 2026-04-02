@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore';
 import { Coffee, Hourglass, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { expectedStartMs } from '../lib/attendance';
 import { db } from '../firebase/config';
 import { attendanceRowPill } from '../lib/attendance';
 import {
@@ -33,7 +34,7 @@ import {
   localDateId,
 } from '../lib/date';
 import { invalidateHistoryRowsCache } from '../lib/historyRowsCache';
-import { effectiveExpectedStart } from '../lib/teamSettings';
+import { effectiveExpectedStartForDate } from '../lib/teamSettings';
 import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
 import type { ClockInGeo, DayBreak, DayEntry, TimeOffKind, WorkLocation, WorkSession } from '../types';
 
@@ -57,7 +58,7 @@ function formatElapsed(ms: number): string {
 }
 
 export function Today() {
-  const { user, teamId, teamSettings, memberScheduleOverride } = useAuth();
+  const { user, teamId, teamSettings, memberScheduleOverride, userPreferences } = useAuth();
   const dateId = useMemo(() => localDateId(), []);
   const tableDateIds = useMemo(() => lastNDates(TABLE_DAYS), []);
 
@@ -167,10 +168,43 @@ export function Today() {
 
   const now = useMemo(() => new Date(), [tick]);
 
-  const expectedStart = useMemo(
-    () => effectiveExpectedStart(teamSettings, memberScheduleOverride),
-    [teamSettings, memberScheduleOverride]
+  const expectedToday = useMemo(
+    () => effectiveExpectedStartForDate(dateId, teamSettings, memberScheduleOverride),
+    [dateId, teamSettings, memberScheduleOverride]
   );
+
+  const remindBeforeStartRef = useRef<string | null>(null);
+  const longShiftNotifiedRef = useRef(false);
+
+  useEffect(() => {
+    longShiftNotifiedRef.current = false;
+  }, [dateId, entry?.sessions]);
+
+  useEffect(() => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const th = userPreferences?.notifyLongShiftHours;
+    if (th == null || th <= 0) return;
+    if (!entry || !getOpenSession(entry)) return;
+    const ms = openSessionGrossMs(entry, new Date());
+    if (ms < th * 3600000 || longShiftNotifiedRef.current) return;
+    longShiftNotifiedRef.current = true;
+    new Notification('ZenTeams', { body: `You have been on the clock for about ${th}+ hours. Remember to clock out if you are done.` });
+  }, [entry, userPreferences?.notifyLongShiftHours, tick]);
+
+  useEffect(() => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if (!userPreferences?.notifyBeforeExpectedStart) return;
+    if (dayHasPunches(entry)) return;
+    const expMs = expectedStartMs(dateId, expectedToday.hour, expectedToday.minute);
+    const nowMs = Date.now();
+    const winStart = expMs - 15 * 60 * 1000;
+    if (nowMs < winStart || nowMs >= expMs) return;
+    if (remindBeforeStartRef.current === dateId) return;
+    remindBeforeStartRef.current = dateId;
+    new Notification('ZenTeams', {
+      body: `Expected start is at ${formatHourMinute(expectedToday.hour, expectedToday.minute)} — clock in when you begin.`,
+    });
+  }, [dateId, entry, expectedToday.hour, expectedToday.minute, userPreferences?.notifyBeforeExpectedStart, tick]);
 
   const { holidays, pto } = useMemo(
     () => timeOffSetsForMember(timeOffRows, user?.uid ?? ''),
@@ -562,12 +596,13 @@ export function Today() {
               ) : (
                 mergedRows.map(({ dateId: rowId, entry: rowEntry }) => {
                   const to = pillTimeOffOpts(rowId, holidays, pto);
+                  const expRow = effectiveExpectedStartForDate(rowId, teamSettings, memberScheduleOverride);
                   const pill = attendanceRowPill(
                     rowId,
                     dateId,
                     rowEntry,
-                    expectedStart.hour,
-                    expectedStart.minute,
+                    expRow.hour,
+                    expRow.minute,
                     to.isTeamHoliday || to.isMemberPto ? to : undefined
                   );
                   const nowForRow = rowId === dateId ? now : new Date();
@@ -612,8 +647,8 @@ export function Today() {
           </table>
         </div>
         <p className="attendance-table-foot muted small">
-          Status uses <strong>{formatHourMinute(expectedStart.hour, expectedStart.minute)}</strong> local on each
-          day: on time = Present, after = Late. Holidays / PTO override status when configured on the team.
+          Status compares first clock-in to the <strong>expected start for that day</strong> (weekly schedule, team
+          default, or your profile override). Holidays / PTO override when configured.
         </p>
       </section>
     </div>

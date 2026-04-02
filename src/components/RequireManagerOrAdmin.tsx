@@ -20,7 +20,7 @@ export function RequireManagerOrAdmin() {
     return <Navigate to="/onboarding" replace />;
   }
 
-  if (role !== 'admin' && role !== 'manager') {
+  if (role !== 'admin' && role !== 'manager' && role !== 'auditor') {
     return <Navigate to="/" replace />;
   }
 

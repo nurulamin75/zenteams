@@ -2,7 +2,9 @@ import { NavLink } from 'react-router-dom';
 import {
   BarChart3,
   CalendarClock,
+  CalendarRange,
   ClipboardList,
+  FileBarChart,
   Layers,
   Timer,
   LayoutDashboard,
@@ -29,7 +31,7 @@ export function Sidebar({
 }) {
   const { teamId, teamName, teams, role, logout, switchTeam } = useAuth();
   const hasTeam = Boolean(teamId);
-  const canLeadTeam = role === 'admin' || role === 'manager';
+  const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
 
   async function handleLogout() {
     onClose();
@@ -90,6 +92,10 @@ export function Sidebar({
                 <Timer size={20} strokeWidth={2} />
                 <span className="sidebar-link-text">Timesheet</span>
               </NavLink>
+              <NavLink to="/calendar" className={linkClass} onClick={onClose} title="Calendar">
+                <CalendarRange size={20} strokeWidth={2} />
+                <span className="sidebar-link-text">Calendar</span>
+              </NavLink>
               {canLeadTeam && (
                 <>
                   <NavLink to="/teams" className={linkClass} onClick={onClose} title="Teams">
@@ -99,6 +105,10 @@ export function Sidebar({
                   <NavLink to="/analytics" className={linkClass} onClick={onClose} title="Analytics">
                     <BarChart3 size={20} strokeWidth={2} />
                     <span className="sidebar-link-text">Analytics</span>
+                  </NavLink>
+                  <NavLink to="/reports" className={linkClass} onClick={onClose} title="Reports">
+                    <FileBarChart size={20} strokeWidth={2} />
+                    <span className="sidebar-link-text">Reports</span>
                   </NavLink>
                 </>
               )}

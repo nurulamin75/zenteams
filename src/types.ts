@@ -2,7 +2,7 @@ import type { Timestamp } from 'firebase/firestore';
 
 export type WorkLocation = 'office' | 'remote';
 
-export type MemberRole = 'admin' | 'manager' | 'member';
+export type MemberRole = 'admin' | 'manager' | 'member' | 'auditor';
 
 export interface TeamPolicies {
   maxBreakMinutes?: number | null;
@@ -10,10 +10,16 @@ export interface TeamPolicies {
   autoClockOutHours?: number | null;
 }
 
+/** Per weekday expected start (0 = Sunday … 6 = Saturday). Missing key → team default. */
+export type WeeklyExpectedStartMap = Partial<
+  Record<'0' | '1' | '2' | '3' | '4' | '5' | '6', { hour: number; minute: number }>
+>;
+
 export interface TeamSettings {
   expectedStartHour: number;
   expectedStartMinute: number;
   policies: TeamPolicies;
+  weeklySchedule?: WeeklyExpectedStartMap | null;
 }
 
 export interface ClockInGeo {
@@ -50,6 +56,8 @@ export interface MemberProfile {
   inviteCode?: string;
   expectedStartHour?: number | null;
   expectedStartMinute?: number | null;
+  /** IANA or label, e.g. America/New_York */
+  timezone?: string | null;
 }
 
 export type TimeOffKind = 'holiday' | 'pto';
@@ -67,6 +75,9 @@ export type ThemePreference = 'light' | 'dark' | 'system';
 export interface UserPreferences {
   theme?: ThemePreference;
   compactUI?: boolean;
+  /** Browser notifications when permitted */
+  notifyLongShiftHours?: number | null;
+  notifyBeforeExpectedStart?: boolean;
 }
 
 export interface UserTeam {
@@ -87,6 +98,29 @@ export interface TimesheetLine {
   endTimeLocal: string | null;
   tags: string | null;
   notes: string | null;
+  projectId?: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export interface TeamProject {
+  id: string;
+  name: string;
+  client: string;
+  archived: boolean;
+  createdAt: Timestamp;
+}
+
+export interface PtoApprovalRequest {
+  kind: 'pto';
+  status: ApprovalStatus;
+  requesterUid: string;
+  dateId: string;
+  label: string | null;
+  note: string | null;
+  createdAt: Timestamp;
+  reviewedByUid?: string | null;
+  reviewedAt?: Timestamp | null;
 }
