@@ -498,11 +498,11 @@ html[data-theme='dark'] .auth-card {
   padding: 0.45rem 0.5rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--main-bg);
   cursor: pointer;
   font: inherit;
   text-align: left;
   color: var(--text);
+  background-color: white;
 }
 
 .team-switcher-name {
@@ -1169,7 +1169,7 @@ html[data-theme='dark'] .history-select {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 1rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -2897,8 +2897,7 @@ html[data-theme='dark'] .analytics-segment__btn--active {
 
 .timesheet-view-toolbar {
   margin-top: 1.3rem;
-  padding-top: 0.85rem;
-  border-top: 1px solid var(--border);
+  padding-top: 0.2rem;
 }
 
 .timesheet-view-tabs {

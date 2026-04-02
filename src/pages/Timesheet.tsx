@@ -580,9 +580,9 @@ export function Timesheet() {
 
             </div>
           </div>
-          <p className="timesheet-header__hint muted small">
+          {/* <p className="timesheet-header__hint muted small">
             Only your entries are shown. Team leads can read all lines for reporting.
-          </p>
+          </p> */}
         </header>
 
         <nav className="timesheet-view-toolbar" aria-label="Timesheet view">

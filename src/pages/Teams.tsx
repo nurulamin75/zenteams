@@ -758,7 +758,6 @@ export function Teams() {
       {tab === 'general' && isAdmin && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Identity</p>
             <h2 className="teams-panel-title">Team profile</h2>
             <p className="teams-panel-lede muted small">
               Name and invite rotation. More workspaces:{' '}
@@ -785,8 +784,25 @@ export function Teams() {
                 {teamProfilePending ? 'Saving…' : 'Save name'}
               </button>
             </div>
-            <div className="teams-divider" role="separator" />
-            <p className="teams-muted-block muted small">
+
+          </div>
+        </div>
+      )}
+
+      {tab === 'invite' && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <h2 className="teams-panel-title">Invite teammates</h2>
+            <p className="teams-panel-lede muted small">
+              Share the join link or copy the team ID and invite code—new members use them on the join page.
+            </p>
+          </header>
+          <TeamInviteSection />
+
+                      <div className="teams-divider" role="separator" />
+
+
+          <p className="teams-muted-block muted small">
               If a link leaked, rotate the code—old joins stop working.
             </p>
             <div className="teams-actions">
@@ -799,20 +815,6 @@ export function Teams() {
                 {inviteRegenPending ? 'Updating…' : 'Regenerate invite code'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'invite' && (
-        <div className="card wide teams-tab-panel teams-panel">
-          <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Access</p>
-            <h2 className="teams-panel-title">Invite teammates</h2>
-            <p className="teams-panel-lede muted small">
-              Share the join link or copy the team ID and invite code—new members use them on the join page.
-            </p>
-          </header>
-          <TeamInviteSection />
         </div>
       )}
 
@@ -825,15 +827,11 @@ export function Teams() {
             </div>
             <div className="admin-toolbar teams-toolbar">
               <label>
-                Date
                 <input type="date" value={dateId} onChange={(e) => setDateId(e.target.value)} />
               </label>
-              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadRoster()} disabled={loading}>
-                Refresh
-              </button>
               <button
                 type="button"
-                className="btn btn-secondary btn-sm"
+                className="btn btn-secondary btn-md"
                 onClick={downloadRosterCsv}
                 disabled={loading || !rows.length}
               >
@@ -971,6 +969,7 @@ export function Teams() {
                   ))}
                 </tbody>
               </table>
+              
             </div>
           )}
         </div>
@@ -979,11 +978,9 @@ export function Teams() {
       {tab === 'directory' && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">People</p>
             <h2 className="teams-panel-title">Member directory</h2>
             <p className="teams-panel-lede muted small">
-              Roles and timezones. Members set timezone in Settings; admins can edit on the member document in Firestore if
-              needed.
+              Roles and timezones. Members set timezone in Settings
             </p>
           </header>
           <div className="teams-directory-grid">
@@ -1003,7 +1000,6 @@ export function Teams() {
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head teams-panel-head--toolbar">
             <div>
-              <p className="teams-panel-eyebrow">Workflow</p>
               <h2 className="teams-panel-title">PTO requests</h2>
               <p className="teams-panel-lede muted small">Submitted from Settings. Approve to create PTO for that day.</p>
             </div>
@@ -1045,7 +1041,6 @@ export function Teams() {
       {tab === 'projects' && isAdmin && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Cost centers</p>
             <h2 className="teams-panel-title">Projects</h2>
             <p className="teams-panel-lede muted small">Link timesheet lines to a project (name + default client).</p>
           </header>
@@ -1088,7 +1083,6 @@ export function Teams() {
       {tab === 'timeoff' && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Calendar</p>
             <h2 className="teams-panel-title">Time off &amp; holidays</h2>
             <p className="teams-panel-lede muted small">Holidays: whole team. PTO: pick a member.</p>
           </header>
@@ -1160,7 +1154,6 @@ export function Teams() {
       {tab === 'settings' && isAdmin && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Rules</p>
             <h2 className="teams-panel-title">Schedule &amp; policies</h2>
             <p className="teams-panel-lede muted small">
               Expected start drives Late / Present. Members can override their own start in their profile.
@@ -1237,7 +1230,6 @@ export function Teams() {
       {tab === 'backup' && isAdmin && (
         <div className="card wide teams-tab-panel teams-panel">
           <header className="teams-panel-head">
-            <p className="teams-panel-eyebrow">Export</p>
             <h2 className="teams-panel-title">Data backup</h2>
             <p className="teams-panel-lede muted small">Client-side JSON: members and day entries in the range.</p>
           </header>
