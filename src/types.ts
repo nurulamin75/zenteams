@@ -27,14 +27,19 @@ export interface DayBreak {
   end: Timestamp | null;
 }
 
-export interface DayEntry {
-  clockIn: Timestamp | null;
+/** One clock-in → clock-out segment (user may have several per day). */
+export interface WorkSession {
+  clockIn: Timestamp;
   clockOut: Timestamp | null;
   breaks: DayBreak[];
-  workLocation: WorkLocation | null;
-  updatedAt: Timestamp;
+  workLocation?: WorkLocation | null;
   note?: string | null;
   clockInGeo?: ClockInGeo | null;
+}
+
+export interface DayEntry {
+  sessions: WorkSession[];
+  updatedAt: Timestamp;
 }
 
 export interface MemberProfile {
@@ -67,4 +72,21 @@ export interface UserPreferences {
 export interface UserTeam {
   id: string;
   name: string;
+}
+
+export interface TimesheetLine {
+  id: string;
+  userId: string;
+  dateId: string;
+  project: string;
+  client: string;
+  task: string;
+  activity: string;
+  hours: number;
+  startTimeLocal: string | null;
+  endTimeLocal: string | null;
+  tags: string | null;
+  notes: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }

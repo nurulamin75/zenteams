@@ -107,6 +107,17 @@ export function Settings() {
         <ThemeToggle />
       </div>
 
+      <div className="card settings-card">
+        <h2 className="card-title">Workspaces</h2>
+        <p className="muted small">
+          Create another team anytime. You stay admin of the new workspace and can switch teams from the team menu
+          (sidebar on desktop, <strong>More</strong> on mobile).
+        </p>
+        <Link to="/team/create" className="btn btn-secondary">
+          Create new team
+        </Link>
+      </div>
+
       {!teamId && (
         <p className="muted small">
           <Link to="/onboarding">Get started</Link> to create or join a team.

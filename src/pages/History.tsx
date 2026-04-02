@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
-import { ArrowDownUp, FileSpreadsheet, FileText, FileType } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowDownUp, ChevronLeft, FileSpreadsheet, FileText, FileType } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { attendanceRowPill } from '../lib/attendance';
-import { formatDurationFromHours, formatLongDate, formatTime, lastNDates, localDateId } from '../lib/date';
-import { entryWorkedHours, grossShiftMs, parseDayEntry } from '../lib/dayEntry';
+import { formatDurationFromHours, formatLongDate, lastNDates, localDateId } from '../lib/date';
+import {
+  dayDisplayWorkLocation,
+  dayHasOpenSession,
+  dayHasPunches,
+  entryWorkedHours,
+  getOpenSession,
+  parseDayEntry,
+  sessionInOutLines,
+} from '../lib/dayEntry';
 import {
   buildHistoryExportRows,
   downloadHistoryCsv,
@@ -31,9 +40,11 @@ type SortDir = 'desc' | 'asc';
 
 function filterRows(rows: HistoryRow[], f: HistoryFilter): HistoryRow[] {
   if (f === 'all') return rows;
-  if (f === 'punched') return rows.filter((r) => r.entry?.clockIn);
-  if (f === 'completed') return rows.filter((r) => r.entry?.clockIn && r.entry?.clockOut);
-  if (f === 'empty') return rows.filter((r) => !r.entry?.clockIn);
+  if (f === 'punched') return rows.filter((r) => dayHasPunches(r.entry));
+  if (f === 'completed') {
+    return rows.filter((r) => r.entry && dayHasPunches(r.entry) && !dayHasOpenSession(r.entry));
+  }
+  if (f === 'empty') return rows.filter((r) => !dayHasPunches(r.entry));
   return rows;
 }
 
@@ -137,8 +148,10 @@ export function History() {
     () => rows.find((r) => r.dateId === todayId)?.entry,
     [rows, todayId]
   );
-  const openShiftTickKey =
-    todayEntry?.clockIn && !todayEntry.clockOut ? todayEntry.clockIn.toMillis() : null;
+  const openShiftTickKey = (() => {
+    const open = todayEntry ? getOpenSession(todayEntry) : null;
+    return open ? open.clockIn.toMillis() : null;
+  })();
 
   useEffect(() => {
     if (openShiftTickKey == null) return;
@@ -182,6 +195,10 @@ export function History() {
   return (
     <div className="page history-page">
       <header className="page-header">
+        <Link to="/today" className="history-back">
+          <ChevronLeft size={20} strokeWidth={2} aria-hidden />
+          Back to attendance
+        </Link>
         <h1>History</h1>
         <p className="page-sub">
           Your punches for the last {HISTORY_LOOKBACK} days (local dates). Filter, sort, and export what you see
@@ -282,26 +299,35 @@ export function History() {
                       to.isTeamHoliday || to.isMemberPto ? to : undefined
                     );
                     const nowForRow = new Date();
-                    let duration = '—';
-                    if (entry?.clockIn) {
-                      duration = entry.clockOut
+                    const { clockIns, clockOuts } = sessionInOutLines(entry);
+                    const duration =
+                      entry && dayHasPunches(entry)
                         ? formatDurationFromHours(entryWorkedHours(entry, nowForRow))
-                        : formatDurationFromHours(grossShiftMs(entry, nowForRow) / (1000 * 60 * 60));
-                    }
-                    const loc =
-                      entry?.workLocation === 'office'
-                        ? 'Office'
-                        : entry?.workLocation === 'remote'
-                          ? 'Remote'
-                          : '—';
-                    const outCell =
-                      entry?.clockIn && !entry.clockOut ? '—' : formatTime(entry?.clockOut ?? null);
+                        : '—';
+                    const wl = dayDisplayWorkLocation(entry);
+                    const loc = wl === 'office' ? 'Office' : wl === 'remote' ? 'Remote' : '—';
 
                     return (
                       <tr key={dateId} className={dateId === todayId ? 'history-table__today' : undefined}>
                         <td className="history-table__date">{formatLongDate(dateId)}</td>
-                        <td>{formatTime(entry?.clockIn ?? null)}</td>
-                        <td>{outCell}</td>
+                        <td>
+                          <div className="attendance-time-stack">
+                            {clockIns.map((t, i) => (
+                              <span key={`in-${i}`} className="attendance-time-stack__line">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="attendance-time-stack">
+                            {clockOuts.map((t, i) => (
+                              <span key={`out-${i}`} className="attendance-time-stack__line">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
                         <td className="history-table__num">{duration}</td>
                         <td>{loc}</td>
                         <td>

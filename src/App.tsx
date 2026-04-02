@@ -16,6 +16,7 @@ import { History } from './pages/History';
 import { Teams } from './pages/Teams';
 import { Analytics } from './pages/Analytics';
 import { Settings } from './pages/Settings';
+import { Timesheet } from './pages/Timesheet';
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
                   <Route index element={<Dashboard />} />
                   <Route path="today" element={<Today />} />
                   <Route path="history" element={<History />} />
+                  <Route path="timesheet" element={<Timesheet />} />
                 </Route>
                 <Route element={<RequireManagerOrAdmin />}>
                   <Route path="teams" element={<Teams />} />

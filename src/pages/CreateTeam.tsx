@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
-import { doc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { arrayUnion, doc, writeBatch, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { generateInviteCode } from '../lib/invite';
 
 export function CreateTeam() {
-  const { user, teamId, refreshTeam } = useAuth();
+  const { user, refreshTeam } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [error, setError] = useState('');
@@ -14,10 +14,6 @@ export function CreateTeam() {
 
   if (!user) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (teamId) {
-    return <Navigate to="/" replace />;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -28,6 +24,11 @@ export function CreateTeam() {
       setError('Missing email on account');
       return;
     }
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('Enter a team name');
+      return;
+    }
     setError('');
     setPending(true);
     try {
@@ -35,7 +36,7 @@ export function CreateTeam() {
       const inviteCode = generateInviteCode();
       const batch = writeBatch(db);
       batch.set(teamRef, {
-        name: name.trim(),
+        name: trimmed,
         inviteCode,
         createdAt: serverTimestamp(),
         createdBy: u.uid,
@@ -45,7 +46,7 @@ export function CreateTeam() {
       });
       batch.set(doc(teamRef, 'members', u.uid), {
         role: 'admin',
-        displayName: u.displayName ?? name.trim(),
+        displayName: u.displayName ?? trimmed,
         email: u.email,
         joinedAt: serverTimestamp(),
       });
@@ -53,7 +54,7 @@ export function CreateTeam() {
         doc(db, 'users', u.uid),
         {
           teamId: teamRef.id,
-          teamIds: [teamRef.id],
+          teamIds: arrayUnion(teamRef.id),
           updatedAt: Timestamp.now(),
         },
         { merge: true }
@@ -73,11 +74,12 @@ export function CreateTeam() {
       <header className="page-header">
         <h1>Create team</h1>
         <p className="page-sub">
-          You&apos;ll be the admin. Your invite code and join link appear on the <strong>Teams</strong> page.
+          You&apos;ll be the admin. Invite code and join link are on the <strong>Teams</strong> page under Invite. You
+          can belong to several teams and switch between them anytime.
         </p>
       </header>
       <div className="card narrow">
-        <form onSubmit={handleSubmit} className="form">
+        <form onSubmit={(e) => void handleSubmit(e)} className="form">
           <label>
             Team name
             <input
@@ -93,6 +95,11 @@ export function CreateTeam() {
             {pending ? 'Creating…' : 'Create team'}
           </button>
         </form>
+        <p className="muted small" style={{ marginTop: '1rem', marginBottom: 0 }}>
+          <Link to="/settings">Back to settings</Link>
+          {' · '}
+          <Link to="/">Home</Link>
+        </p>
       </div>
     </div>
   );

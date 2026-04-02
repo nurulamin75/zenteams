@@ -2,9 +2,9 @@ import { NavLink, useLocation } from 'react-router-dom';
 import {
   CalendarClock,
   ClipboardList,
-  History,
   LayoutDashboard,
   MoreHorizontal,
+  Timer,
   Settings,
   UserPlus,
   Users,
@@ -16,11 +16,14 @@ function itemClass({ isActive }: { isActive: boolean }) {
 }
 
 export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
-  const { teamId } = useAuth();
+  const { teamId, role } = useAuth();
   const location = useLocation();
   const hasTeam = Boolean(teamId);
-  const moreActive =
-    location.pathname === '/teams' || location.pathname === '/analytics';
+  const canLeadTeam = role === 'admin' || role === 'manager';
+  const moreTabActive =
+    location.pathname === '/analytics' ||
+    location.pathname === '/history' ||
+    (canLeadTeam && location.pathname === '/settings');
 
   if (!hasTeam) {
     return (
@@ -64,17 +67,24 @@ export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
         <CalendarClock size={22} strokeWidth={2} aria-hidden />
         <span className="mobile-nav__label">Today</span>
       </NavLink>
-      <NavLink to="/history" className={itemClass}>
-        <History size={22} strokeWidth={2} aria-hidden />
-        <span className="mobile-nav__label">History</span>
+      <NavLink to="/timesheet" className={itemClass}>
+        <Timer size={22} strokeWidth={2} aria-hidden />
+        <span className="mobile-nav__label">Sheet</span>
       </NavLink>
-      <NavLink to="/settings" className={itemClass}>
-        <Settings size={22} strokeWidth={2} aria-hidden />
-        <span className="mobile-nav__label">Settings</span>
-      </NavLink>
+      {canLeadTeam ? (
+        <NavLink to="/teams" className={itemClass}>
+          <Users size={22} strokeWidth={2} aria-hidden />
+          <span className="mobile-nav__label">Teams</span>
+        </NavLink>
+      ) : (
+        <NavLink to="/settings" className={itemClass}>
+          <Settings size={22} strokeWidth={2} aria-hidden />
+          <span className="mobile-nav__label">Settings</span>
+        </NavLink>
+      )}
       <button
         type="button"
-        className={`mobile-nav__item mobile-nav__item--trigger${moreActive ? ' mobile-nav__item--active' : ''}`}
+        className={`mobile-nav__item mobile-nav__item--trigger${moreTabActive ? ' mobile-nav__item--active' : ''}`}
         onClick={onOpenMore}
         aria-label="Team, reports, and sign out"
       >

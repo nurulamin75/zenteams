@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { attendanceRowPill } from './attendance';
-import { formatDurationFromHours, formatLongDate, formatTime } from './date';
-import { entryWorkedHours, grossShiftMs } from './dayEntry';
+import { formatDurationFromHours, formatLongDate } from './date';
+import { dayDisplayWorkLocation, dayHasPunches, entryWorkedHours, sessionInOutLines } from './dayEntry';
 import type { HistoryRow } from './historyRowsCache';
 
 export type HistoryExportRow = {
@@ -42,21 +42,17 @@ export function buildHistoryExportRows(
       isTeamHoliday: holidays.has(dateId),
       isMemberPto: pto.has(dateId),
     });
-    let duration = '—';
-    if (entry?.clockIn) {
-      duration = entry.clockOut
-        ? formatDurationFromHours(entryWorkedHours(entry, now))
-        : formatDurationFromHours(grossShiftMs(entry, now) / (1000 * 60 * 60));
-    }
-    const clockOutDisplay =
-      entry?.clockIn && !entry.clockOut ? '—' : formatTime(entry?.clockOut ?? null);
+    const duration =
+      entry && dayHasPunches(entry) ? formatDurationFromHours(entryWorkedHours(entry, now)) : '—';
+    const { clockIns, clockOuts } = sessionInOutLines(entry);
+    const wl = dayDisplayWorkLocation(entry);
     return {
       dateId,
       dateLabel: formatLongDate(dateId),
-      clockIn: formatTime(entry?.clockIn ?? null),
-      clockOut: clockOutDisplay,
+      clockIn: clockIns.join('; '),
+      clockOut: clockOuts.join('; '),
       duration,
-      location: entry?.workLocation === 'office' ? 'Office' : entry?.workLocation === 'remote' ? 'Remote' : '—',
+      location: wl === 'office' ? 'Office' : wl === 'remote' ? 'Remote' : '—',
       status: pill.label,
     };
   });

@@ -14,19 +14,28 @@ import { Coffee, Hourglass, MapPin } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { attendanceRowPill } from '../lib/attendance';
-import { entryWorkedHours, grossShiftMs, parseDayEntry } from '../lib/dayEntry';
+import {
+  dayHasOpenSession,
+  dayHasPunches,
+  entryWorkedHours,
+  getOpenSession,
+  getOpenSessionIndex,
+  openSessionGrossMs,
+  parseDayEntry,
+  purgeLegacyDayEntryFields,
+  sessionInOutLines,
+} from '../lib/dayEntry';
 import {
   formatDurationFromHours,
   formatHourMinute,
   formatLongDate,
-  formatTime,
   lastNDates,
   localDateId,
 } from '../lib/date';
 import { invalidateHistoryRowsCache } from '../lib/historyRowsCache';
 import { effectiveExpectedStart } from '../lib/teamSettings';
 import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
-import type { ClockInGeo, DayBreak, DayEntry, TimeOffKind, WorkLocation } from '../types';
+import type { ClockInGeo, DayBreak, DayEntry, TimeOffKind, WorkLocation, WorkSession } from '../types';
 
 const TABLE_DAYS = 10;
 const WEEK_SUM_DAYS = 7;
@@ -128,7 +137,7 @@ export function Today() {
             const id = tableDateIds[i]!;
             const e = snaps[i]!.exists() ? parseDayEntry(snaps[i]!.data() as Record<string, unknown>) : null;
             map.set(id, e);
-            if (i < WEEK_SUM_DAYS && e?.clockIn) weekSum += entryWorkedHours(e, staleNow);
+            if (i < WEEK_SUM_DAYS && e && dayHasPunches(e)) weekSum += entryWorkedHours(e, staleNow);
           }
           setEntryMap(map);
           setWeekWorkedHours(weekSum);
@@ -145,8 +154,10 @@ export function Today() {
     };
   }, [user, teamId, tableDateIds]);
 
-  const openShiftTickKey =
-    entry?.clockIn && !entry.clockOut ? entry.clockIn.toMillis() : null;
+  const openShiftTickKey = (() => {
+    const open = getOpenSession(entry);
+    return open ? open.clockIn.toMillis() : null;
+  })();
 
   useEffect(() => {
     if (openShiftTickKey == null) return;
@@ -194,6 +205,9 @@ export function Today() {
 
   async function clockIn(loc: WorkLocation) {
     await write(async () => {
+      const prev = entryLatest.current;
+      const existing = prev?.sessions ?? [];
+      if (getOpenSessionIndex(prev) >= 0) return;
       const ts = Timestamp.now();
       let clockInGeo: ClockInGeo | null = null;
       if (includeGeoOnClockIn && typeof navigator !== 'undefined' && navigator.geolocation) {
@@ -214,16 +228,20 @@ export function Today() {
       }
       const noteTrim = punchNote.trim();
       const note = noteTrim.length > 0 ? noteTrim.slice(0, 500) : null;
+      const newSession: WorkSession = {
+        clockIn: ts,
+        clockOut: null,
+        breaks: [],
+        workLocation: loc,
+        note,
+        clockInGeo,
+      };
       await setDoc(
         entryRef!,
         {
-          clockIn: ts,
-          clockOut: null,
-          breaks: [],
-          workLocation: loc,
+          sessions: [...existing, newSession],
           updatedAt: ts,
-          note,
-          clockInGeo,
+          ...purgeLegacyDayEntryFields(),
         },
         { merge: true }
       );
@@ -233,11 +251,13 @@ export function Today() {
 
   async function startBreak() {
     const prev = entryLatest.current;
-    if (!prev?.clockIn || prev.clockOut) return;
+    const oi = getOpenSessionIndex(prev);
+    if (oi < 0) return;
+    const open = prev!.sessions[oi]!;
     const minGap = teamSettings.policies.minBreakMinutesBetween;
     if (typeof minGap === 'number' && minGap > 0) {
       let lastEndMs = 0;
-      for (const b of prev.breaks) {
+      for (const b of open.breaks) {
         if (b.end) lastEndMs = Math.max(lastEndMs, b.end.toMillis());
       }
       if (lastEndMs > 0 && Date.now() - lastEndMs < minGap * 60_000) {
@@ -247,38 +267,59 @@ export function Today() {
     }
     await write(async () => {
       const cur = entryLatest.current;
-      if (!cur?.clockIn || cur.clockOut) return;
-      const breaks = [...cur.breaks, { start: Timestamp.now(), end: null }];
-      await updateDoc(entryRef!, { breaks, updatedAt: Timestamp.now() });
+      const idx = getOpenSessionIndex(cur);
+      if (idx < 0) return;
+      const sessions = cur!.sessions.map((s, i) =>
+        i === idx ? { ...s, breaks: [...s.breaks, { start: Timestamp.now(), end: null }] } : s
+      );
+      await updateDoc(entryRef!, {
+        sessions,
+        updatedAt: Timestamp.now(),
+        ...purgeLegacyDayEntryFields(),
+      });
     });
   }
 
   async function endBreak() {
     await write(async () => {
       const prev = entryLatest.current;
-      if (!prev?.clockIn || prev.clockOut) return;
-      const idx = activeBreakIndex(prev.breaks);
+      const si = getOpenSessionIndex(prev);
+      if (si < 0) return;
+      const open = prev!.sessions[si]!;
+      const idx = activeBreakIndex(open.breaks);
       if (idx < 0) return;
-      const breaks = prev.breaks.map((b, i) =>
-        i === idx ? { ...b, end: Timestamp.now() } : b
-      );
-      await updateDoc(entryRef!, { breaks, updatedAt: Timestamp.now() });
+      const sessions = prev!.sessions.map((s, i) => {
+        if (i !== si) return s;
+        const breaks = s.breaks.map((b, j) => (j === idx ? { ...b, end: Timestamp.now() } : b));
+        return { ...s, breaks };
+      });
+      await updateDoc(entryRef!, {
+        sessions,
+        updatedAt: Timestamp.now(),
+        ...purgeLegacyDayEntryFields(),
+      });
     });
   }
 
   async function clockOut() {
     await write(async () => {
       const prev = entryLatest.current;
-      if (!prev?.clockIn || prev.clockOut) return;
-      let breaks = prev.breaks;
-      const idx = activeBreakIndex(breaks);
-      if (idx >= 0) {
-        breaks = breaks.map((b, i) => (i === idx ? { ...b, end: Timestamp.now() } : b));
-      }
+      const si = getOpenSessionIndex(prev);
+      if (si < 0) return;
+      const ts = Timestamp.now();
+      const sessions = prev!.sessions.map((s, i) => {
+        if (i !== si) return s;
+        let breaks = s.breaks;
+        const bi = activeBreakIndex(breaks);
+        if (bi >= 0) {
+          breaks = breaks.map((b, j) => (j === bi ? { ...b, end: ts } : b));
+        }
+        return { ...s, clockOut: ts, breaks };
+      });
       await updateDoc(entryRef!, {
-        clockOut: Timestamp.now(),
-        breaks,
-        updatedAt: Timestamp.now(),
+        sessions,
+        updatedAt: ts,
+        ...purgeLegacyDayEntryFields(),
       });
     });
   }
@@ -286,39 +327,39 @@ export function Today() {
   if (!user) return <Navigate to="/login" replace />;
   if (!teamId) return <Navigate to="/onboarding" replace />;
 
-  const onBreak = entry ? activeBreakIndex(entry.breaks) >= 0 : false;
-  const working = Boolean(entry?.clockIn && !entry.clockOut);
+  const openSession = entry ? getOpenSession(entry) : null;
+  const onBreak = openSession ? activeBreakIndex(openSession.breaks) >= 0 : false;
+  const working = dayHasOpenSession(entry);
   const canClockIn = !working;
-  const liveElapsedMs =
-    entry?.clockIn && !entry.clockOut ? grossShiftMs(entry, now) : 0;
+  const liveElapsedMs = working && !onBreak ? openSessionGrossMs(entry, now) : 0;
   const netToday =
-    entry?.clockIn ? formatDurationFromHours(entryWorkedHours(entry, now)) : null;
+    entry && dayHasPunches(entry) ? formatDurationFromHours(entryWorkedHours(entry, now)) : null;
 
   const locLabel =
-    entry?.workLocation === 'office'
+    openSession?.workLocation === 'office'
       ? 'Office'
-      : entry?.workLocation === 'remote'
+      : openSession?.workLocation === 'remote'
         ? 'Remote'
         : null;
 
   const pageBusy = snapshotLoading;
 
   const breakTooLong = useMemo(() => {
-    if (!onBreak || !entry) return false;
+    if (!onBreak || !openSession) return false;
     const maxM = teamSettings.policies.maxBreakMinutes;
     if (typeof maxM !== 'number' || maxM <= 0) return false;
-    const idx = activeBreakIndex(entry.breaks);
+    const idx = activeBreakIndex(openSession.breaks);
     if (idx < 0) return false;
-    const b = entry.breaks[idx]!;
+    const b = openSession.breaks[idx]!;
     return Date.now() - b.start.toMillis() > maxM * 60_000;
-  }, [onBreak, entry, teamSettings.policies.maxBreakMinutes, tick]);
+  }, [onBreak, openSession, teamSettings.policies.maxBreakMinutes, tick]);
 
   const shiftLongWarning = useMemo(() => {
-    if (!working || !entry?.clockIn) return null;
+    if (!working || !entry) return null;
     const policyH = teamSettings.policies.autoClockOutHours;
     const threshold =
       typeof policyH === 'number' && policyH > 0 ? policyH : 12;
-    const grossH = grossShiftMs(entry, now) / (1000 * 60 * 60);
+    const grossH = openSessionGrossMs(entry, now) / (1000 * 60 * 60);
     if (grossH < threshold) return null;
     return { threshold, grossH };
   }, [working, entry, now, teamSettings.policies.autoClockOutHours]);
@@ -376,8 +417,10 @@ export function Today() {
                 )}
               </p>
             )
-          ) : entry?.clockOut ? (
-            <p className="attendance-hero__status-line muted">You&apos;re done for today</p>
+          ) : dayHasPunches(entry) ? (
+            <p className="attendance-hero__status-line muted">
+              You&apos;re clocked out — clock in again if you work more today.
+            </p>
           ) : (
             <p className="attendance-hero__status-line muted">You haven&apos;t clocked in today</p>
           )}
@@ -528,20 +571,33 @@ export function Today() {
                     to.isTeamHoliday || to.isMemberPto ? to : undefined
                   );
                   const nowForRow = rowId === dateId ? now : new Date();
+                  const { clockIns, clockOuts } = sessionInOutLines(rowEntry);
                   const duration =
-                    rowEntry?.clockIn
-                      ? rowEntry.clockOut
-                        ? formatDurationFromHours(entryWorkedHours(rowEntry, nowForRow))
-                        : formatDurationFromHours(grossShiftMs(rowEntry, nowForRow) / (1000 * 60 * 60))
+                    rowEntry && dayHasPunches(rowEntry)
+                      ? formatDurationFromHours(entryWorkedHours(rowEntry, nowForRow))
                       : '—';
-                  const outDisplay =
-                    rowEntry?.clockIn && !rowEntry.clockOut ? '—' : formatTime(rowEntry?.clockOut ?? null);
 
                   return (
                     <tr key={rowId} className={rowId === dateId ? 'attendance-table__today' : undefined}>
                       <td className="attendance-table__day">{formatLongDate(rowId)}</td>
-                      <td>{formatTime(rowEntry?.clockIn ?? null)}</td>
-                      <td className="attendance-table__out">{outDisplay}</td>
+                      <td>
+                        <div className="attendance-time-stack">
+                          {clockIns.map((t, i) => (
+                            <span key={`in-${i}`} className="attendance-time-stack__line">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="attendance-table__out">
+                        <div className="attendance-time-stack">
+                          {clockOuts.map((t, i) => (
+                            <span key={`out-${i}`} className="attendance-time-stack__line">
+                              {t}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
                       <td className="attendance-table__dur">{duration}</td>
                       <td>
                         <span className={`attendance-pill attendance-pill--${pill.variant}`}>

@@ -1,5 +1,6 @@
 import type { Timestamp } from 'firebase/firestore';
 import type { DayEntry } from '../types';
+import { dayFirstClockIn, dayHasOpenSession, dayHasPunches } from './dayEntry';
 
 export type AttendancePillVariant = 'present' | 'late' | 'active' | 'off' | 'holiday' | 'pto';
 
@@ -22,12 +23,13 @@ export function attendanceRowPill(
 ): { variant: AttendancePillVariant; label: string } {
   if (opts?.isTeamHoliday) return { variant: 'holiday', label: 'Holiday' };
   if (opts?.isMemberPto) return { variant: 'pto', label: 'PTO' };
-  if (!entry?.clockIn) return { variant: 'off', label: '—' };
-  if (!entry.clockOut) {
+  const firstIn = dayFirstClockIn(entry);
+  if (!dayHasPunches(entry) || !firstIn) return { variant: 'off', label: '—' };
+  if (dayHasOpenSession(entry)) {
     if (dateId === todayId) return { variant: 'active', label: 'Present' };
     return { variant: 'active', label: 'Open' };
   }
-  if (isClockInLate(dateId, entry.clockIn, expectedHour, expectedMinute)) {
+  if (isClockInLate(dateId, firstIn, expectedHour, expectedMinute)) {
     return { variant: 'late', label: 'Late' };
   }
   return { variant: 'present', label: 'Present' };

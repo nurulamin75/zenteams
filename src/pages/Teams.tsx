@@ -13,24 +13,24 @@ import {
   Timestamp,
   updateDoc,
 } from 'firebase/firestore';
+import { Link } from 'react-router-dom';
+import { Users } from 'lucide-react';
 import { TeamInviteSection } from '../components/TeamInviteSection';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { appendAuditLog } from '../lib/auditLog';
-import { parseDayEntry } from '../lib/dayEntry';
-import { formatTime, localDateId } from '../lib/date';
+import {
+  breaksSummaryForSessions,
+  dayFirstClockIn,
+  dayLastClockOut,
+  dayWorkLocationSummary,
+  parseDayEntry,
+  purgeLegacyDayEntryFields,
+  sessionInOutLines,
+} from '../lib/dayEntry';
+import { localDateId } from '../lib/date';
+import { generateInviteCode } from '../lib/invite';
 import type { DayEntry, MemberRole, TimeOffKind } from '../types';
-
-function breaksSummaryForCsv(breaks: DayEntry['breaks']): string {
-  if (!breaks.length) return '';
-  return breaks
-    .map((b, i) => {
-      const start = formatTime(b.start);
-      const end = b.end != null ? formatTime(b.end) : 'open';
-      return `#${i + 1} ${start}-${end}`;
-    })
-    .join('; ');
-}
 
 function escapeCsvCell(s: string): string {
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -62,10 +62,10 @@ interface AuditRow {
   meta: Record<string, unknown>;
 }
 
-type TeamsTab = 'roster' | 'invite' | 'timeoff' | 'audit' | 'settings' | 'backup';
+type TeamsTab = 'general' | 'roster' | 'invite' | 'timeoff' | 'audit' | 'settings' | 'backup';
 
 export function Teams() {
-  const { user, teamId, role, teamSettings, refreshTeam } = useAuth();
+  const { user, teamId, role, teamName, teamSettings, refreshTeam } = useAuth();
   const isAdmin = role === 'admin';
 
   const [tab, setTab] = useState<TeamsTab>('roster');
@@ -108,6 +108,13 @@ export function Teams() {
   const [adjReason, setAdjReason] = useState('');
   const [adjPending, setAdjPending] = useState(false);
 
+  const [draftTeamName, setDraftTeamName] = useState('');
+  const [teamProfilePending, setTeamProfilePending] = useState(false);
+  const [inviteRegenPending, setInviteRegenPending] = useState(false);
+  const [nameEdit, setNameEdit] = useState<{ userId: string; value: string } | null>(null);
+  const [nameEditPending, setNameEditPending] = useState(false);
+  const [removePendingUid, setRemovePendingUid] = useState<string | null>(null);
+
   useEffect(() => {
     setSetHour(String(teamSettings.expectedStartHour));
     setSetMinute(String(teamSettings.expectedStartMinute));
@@ -115,6 +122,16 @@ export function Teams() {
     setPolMinBetween(teamSettings.policies.minBreakMinutesBetween?.toString() ?? '');
     setPolAutoOut(teamSettings.policies.autoClockOutHours?.toString() ?? '');
   }, [teamSettings]);
+
+  useEffect(() => {
+    if (teamName) setDraftTeamName(teamName);
+  }, [teamName]);
+
+  useEffect(() => {
+    if (!isAdmin && (tab === 'general' || tab === 'settings' || tab === 'backup')) {
+      setTab('roster');
+    }
+  }, [isAdmin, tab]);
 
   useEffect(() => {
     if (!teamId) return;
@@ -229,11 +246,19 @@ export function Teams() {
     for (const r of rows) {
       const e = r.entry;
       const clockIn =
-        e?.clockIn && 'toDate' in e.clockIn ? (e.clockIn as Timestamp).toDate().toISOString() : '';
+        (e?.sessions ?? [])
+          .map((s) => (s.clockIn && 'toDate' in s.clockIn ? s.clockIn.toDate().toISOString() : ''))
+          .filter(Boolean)
+          .join('; ') ?? '';
       const clockOut =
-        e?.clockOut && 'toDate' in e.clockOut ? (e.clockOut as Timestamp).toDate().toISOString() : '';
-      const loc = e?.workLocation ?? '';
-      const breaks = e ? breaksSummaryForCsv(e.breaks) : '';
+        (e?.sessions ?? [])
+          .map((s) =>
+            s.clockOut && 'toDate' in s.clockOut ? s.clockOut.toDate().toISOString() : ''
+          )
+          .filter(Boolean)
+          .join('; ') ?? '';
+      const loc = e ? dayWorkLocationSummary(e) : '';
+      const breaks = e ? breaksSummaryForSessions(e.sessions) : '';
       lines.push(
         [dateId, r.userId, r.displayName, r.email, r.role, loc, clockIn, clockOut, breaks]
           .map((c) => escapeCsvCell(String(c)))
@@ -311,8 +336,18 @@ export function Teams() {
     }
   }
 
+  function adminCount(): number {
+    return rows.filter((r) => r.role === 'admin').length;
+  }
+
   async function changeMemberRole(uid: string, newRole: MemberRole) {
     if (!teamId || !user || !isAdmin) return;
+    const target = rows.find((r) => r.userId === uid);
+    if (target?.role === 'admin' && newRole !== 'admin' && adminCount() <= 1) {
+      setError('There must be at least one admin.');
+      return;
+    }
+    setError('');
     try {
       await updateDoc(doc(db, 'teams', teamId, 'members', uid), { role: newRole });
       await appendAuditLog(teamId, user.uid, 'member_role_changed', { targetUserId: uid, newRole });
@@ -323,16 +358,104 @@ export function Teams() {
     }
   }
 
+  async function saveMemberDisplayName(uid: string) {
+    if (!teamId || !user || !isAdmin || !nameEdit || nameEdit.userId !== uid) return;
+    const v = nameEdit.value.trim();
+    if (!v) {
+      setError('Display name is required');
+      return;
+    }
+    setError('');
+    setNameEditPending(true);
+    try {
+      await updateDoc(doc(db, 'teams', teamId, 'members', uid), { displayName: v });
+      await appendAuditLog(teamId, user.uid, 'member_display_name_updated', { targetUserId: uid });
+      setNameEdit(null);
+      await loadRoster();
+      await refreshTeam();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update name');
+    } finally {
+      setNameEditPending(false);
+    }
+  }
+
+  async function removeMemberFromTeam(uid: string) {
+    if (!teamId || !user || !isAdmin) return;
+    if (uid === user.uid) {
+      setError('You cannot remove yourself from the team.');
+      return;
+    }
+    const target = rows.find((r) => r.userId === uid);
+    if (target?.role === 'admin' && adminCount() <= 1) {
+      setError('Cannot remove the only admin.');
+      return;
+    }
+    if (!window.confirm(`Remove ${target?.displayName ?? uid} from this team? They will lose access until invited again.`)) {
+      return;
+    }
+    setError('');
+    setRemovePendingUid(uid);
+    try {
+      await deleteDoc(doc(db, 'teams', teamId, 'members', uid));
+      await appendAuditLog(teamId, user.uid, 'member_removed', { targetUserId: uid });
+      await loadRoster();
+      await refreshTeam();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to remove member');
+    } finally {
+      setRemovePendingUid(null);
+    }
+  }
+
+  async function saveTeamProfile() {
+    if (!teamId || !user || !isAdmin) return;
+    const n = draftTeamName.trim();
+    if (!n) {
+      setError('Team name is required');
+      return;
+    }
+    setError('');
+    setTeamProfilePending(true);
+    try {
+      await updateDoc(doc(db, 'teams', teamId), { name: n });
+      await appendAuditLog(teamId, user.uid, 'team_profile_updated', { name: n });
+      await refreshTeam();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setTeamProfilePending(false);
+    }
+  }
+
+  async function regenerateInviteCode() {
+    if (!teamId || !user || !isAdmin) return;
+    if (!window.confirm('Generate a new invite code? The old code will stop working for new joins.')) return;
+    setError('');
+    setInviteRegenPending(true);
+    try {
+      const code = generateInviteCode();
+      await updateDoc(doc(db, 'teams', teamId), { inviteCode: code });
+      await appendAuditLog(teamId, user.uid, 'invite_code_regenerated', {});
+      await refreshTeam();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to regenerate');
+    } finally {
+      setInviteRegenPending(false);
+    }
+  }
+
   function openAdjust(r: RosterRow) {
     setAdjustRow(r);
     setAdjDateId(dateId);
     const e = r.entry;
-    if (e?.clockIn) {
-      const d = e.clockIn.toDate();
-      setAdjIn(toDatetimeLocal(d));
+    const firstIn = e ? dayFirstClockIn(e) : null;
+    const lastOut = e ? dayLastClockOut(e) : null;
+    if (firstIn) {
+      setAdjIn(toDatetimeLocal(firstIn.toDate()));
     } else setAdjIn('');
-    if (e?.clockOut) {
-      setAdjOut(toDatetimeLocal(e.clockOut.toDate()));
+    if (lastOut) {
+      setAdjOut(toDatetimeLocal(lastOut.toDate()));
     } else setAdjOut('');
     setAdjReason('');
   }
@@ -357,16 +480,23 @@ export function Teams() {
         setAdjPending(false);
         return;
       }
+      const first = prev?.sessions[0];
+      const wl = first?.workLocation ?? 'remote';
       await setDoc(
         ref,
         {
-          clockIn,
-          clockOut,
-          breaks: prev?.breaks ?? [],
-          workLocation: prev?.workLocation ?? null,
-          note: prev?.note ?? null,
-          clockInGeo: prev?.clockInGeo ?? null,
+          sessions: [
+            {
+              clockIn,
+              clockOut,
+              breaks: [],
+              workLocation: wl,
+              note: first?.note ?? null,
+              clockInGeo: first?.clockInGeo ?? null,
+            },
+          ],
           updatedAt: Timestamp.now(),
+          ...purgeLegacyDayEntryFields(),
         },
         { merge: true }
       );
@@ -424,12 +554,16 @@ export function Teams() {
   }
 
   const tabButtons = useMemo(() => {
-    const base: { id: TeamsTab; label: string }[] = [
+    const base: { id: TeamsTab; label: string }[] = [];
+    if (isAdmin) {
+      base.push({ id: 'general', label: 'General' });
+    }
+    base.push(
       { id: 'roster', label: 'Roster' },
       { id: 'invite', label: 'Invite' },
       { id: 'timeoff', label: 'Time off' },
-      { id: 'audit', label: 'Audit log' },
-    ];
+      { id: 'audit', label: 'Audit log' }
+    );
     if (isAdmin) {
       base.push({ id: 'settings', label: 'Policies' }, { id: 'backup', label: 'Backup' });
     }
@@ -438,11 +572,10 @@ export function Teams() {
 
   return (
     <div className="page teams-page">
-      <header className="page-header">
-        <h1>Teams</h1>
-        <p className="page-sub">
-          Roster, invites, time off, and audit trail. {isAdmin ? 'Admins can edit policies and run backups.' : ''}
-        </p>
+      <header className="teams-hero">
+        <div className="teams-hero__text">
+          <h1 className="teams-hero__title">Teams & workspace</h1>
+        </div>
       </header>
 
       <div className="teams-tabs" role="tablist">
@@ -460,33 +593,99 @@ export function Teams() {
         ))}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="error teams-page-error">{error}</p>}
+
+      {tab === 'general' && isAdmin && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Identity</p>
+            <h2 className="teams-panel-title">Team profile</h2>
+            <p className="teams-panel-lede muted small">
+              Name and invite rotation. More workspaces:{' '}
+              <Link to="/team/create">Create team</Link> · <Link to="/settings">Settings</Link>
+            </p>
+          </header>
+          <div className="form teams-profile-form">
+            <label>
+              Team name
+              <input
+                type="text"
+                value={draftTeamName}
+                onChange={(e) => setDraftTeamName(e.target.value)}
+                placeholder="Team display name"
+              />
+            </label>
+            <div className="teams-actions">
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={teamProfilePending}
+                onClick={() => void saveTeamProfile()}
+              >
+                {teamProfilePending ? 'Saving…' : 'Save name'}
+              </button>
+            </div>
+            <div className="teams-divider" role="separator" />
+            <p className="teams-muted-block muted small">
+              If a link leaked, rotate the code—old joins stop working.
+            </p>
+            <div className="teams-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={inviteRegenPending}
+                onClick={() => void regenerateInviteCode()}
+              >
+                {inviteRegenPending ? 'Updating…' : 'Regenerate invite code'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {tab === 'invite' && (
-        <div className="teams-tab-panel">
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Access</p>
+            <h2 className="teams-panel-title">Invite teammates</h2>
+            <p className="teams-panel-lede muted small">
+              Share the join link or copy the team ID and invite code—new members use them on the join page.
+            </p>
+          </header>
           <TeamInviteSection />
         </div>
       )}
 
       {tab === 'roster' && (
-        <div className="card wide teams-roster-card teams-tab-panel">
-          <div className="admin-toolbar">
-            <label>
-              Date
-              <input type="date" value={dateId} onChange={(e) => setDateId(e.target.value)} />
-            </label>
-            <button type="button" className="btn btn-secondary" onClick={() => void loadRoster()} disabled={loading}>
-              Refresh
-            </button>
-            <button type="button" className="btn btn-primary" onClick={downloadRosterCsv} disabled={loading || !rows.length}>
-              Export CSV
-            </button>
-          </div>
+        <div className="card wide teams-roster-card teams-tab-panel teams-panel">
+          <header className="teams-panel-head teams-panel-head--toolbar">
+            <div>
+              <p className="teams-panel-eyebrow">People</p>
+              <h2 className="teams-panel-title">Roster</h2>
+            </div>
+            <div className="admin-toolbar teams-toolbar">
+              <label>
+                Date
+                <input type="date" value={dateId} onChange={(e) => setDateId(e.target.value)} />
+              </label>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void loadRoster()} disabled={loading}>
+                Refresh
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={downloadRosterCsv}
+                disabled={loading || !rows.length}
+              >
+                Export CSV
+              </button>
+            </div>
+          </header>
           {loading ? (
-            <p className="muted">Loading…</p>
+            <p className="muted teams-panel-loading">Loading…</p>
           ) : (
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="table-wrap teams-table-wrap">
+              <table className="data-table teams-table">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -501,7 +700,48 @@ export function Teams() {
                 <tbody>
                   {rows.map((r) => (
                     <tr key={r.userId}>
-                      <td>{r.displayName}</td>
+                      <td>
+                        {nameEdit?.userId === r.userId ? (
+                          <div className="teams-inline-name">
+                            <input
+                              type="text"
+                              className="teams-inline-name-input"
+                              value={nameEdit.value}
+                              onChange={(e) => setNameEdit({ userId: r.userId, value: e.target.value })}
+                              disabled={nameEditPending}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-primary btn-sm"
+                              disabled={nameEditPending}
+                              onClick={() => void saveMemberDisplayName(r.userId)}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm"
+                              disabled={nameEditPending}
+                              onClick={() => setNameEdit(null)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="teams-name-cell">
+                            {r.displayName}
+                            {isAdmin && r.userId !== user?.uid && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                onClick={() => setNameEdit({ userId: r.userId, value: r.displayName })}
+                              >
+                                Rename
+                              </button>
+                            )}
+                          </span>
+                        )}
+                      </td>
                       <td>{r.email}</td>
                       <td>
                         {isAdmin && r.userId !== user?.uid ? (
@@ -518,13 +758,51 @@ export function Teams() {
                           r.role
                         )}
                       </td>
-                      <td>{formatTime(r.entry?.clockIn ?? null)}</td>
-                      <td>{formatTime(r.entry?.clockOut ?? null)}</td>
-                      <td>{r.entry?.workLocation ?? '—'}</td>
                       <td>
-                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openAdjust(r)}>
-                          Adjust
-                        </button>
+                        {(() => {
+                          const { clockIns } = sessionInOutLines(r.entry);
+                          return (
+                            <div className="attendance-time-stack">
+                              {clockIns.map((t, i) => (
+                                <span key={`in-${i}`} className="attendance-time-stack__line">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td>
+                        {(() => {
+                          const { clockOuts } = sessionInOutLines(r.entry);
+                          return (
+                            <div className="attendance-time-stack">
+                              {clockOuts.map((t, i) => (
+                                <span key={`out-${i}`} className="attendance-time-stack__line">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </td>
+                      <td>{r.entry ? dayWorkLocationSummary(r.entry) : '—'}</td>
+                      <td>
+                        <div className="teams-row-actions">
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openAdjust(r)}>
+                            Adjust
+                          </button>
+                          {isAdmin && r.userId !== user?.uid && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-sm teams-remove-btn"
+                              disabled={removePendingUid === r.userId}
+                              onClick={() => void removeMemberFromTeam(r.userId)}
+                            >
+                              {removePendingUid === r.userId ? 'Removing…' : 'Remove'}
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -536,10 +814,13 @@ export function Teams() {
       )}
 
       {tab === 'timeoff' && (
-        <div className="card wide teams-tab-panel">
-          <h2 className="card-title">Time off &amp; holidays</h2>
-          <p className="muted small">Holidays apply to everyone. PTO is per person (pick member).</p>
-          <div className="admin-toolbar teams-timeoff-form">
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Calendar</p>
+            <h2 className="teams-panel-title">Time off &amp; holidays</h2>
+            <p className="teams-panel-lede muted small">Holidays: whole team. PTO: pick a member.</p>
+          </header>
+          <div className="admin-toolbar teams-toolbar teams-timeoff-form">
             <label>
               Date
               <input type="date" value={toDateId} onChange={(e) => setToDateId(e.target.value)} />
@@ -568,12 +849,17 @@ export function Teams() {
               Label (optional)
               <input type="text" value={toLabel} onChange={(e) => setToLabel(e.target.value)} placeholder="e.g. New Year" />
             </label>
-            <button type="button" className="btn btn-primary" disabled={toPending || (toKind === 'pto' && !toUserId)} onClick={() => void addTimeOff()}>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              disabled={toPending || (toKind === 'pto' && !toUserId)}
+              onClick={() => void addTimeOff()}
+            >
               Add
             </button>
           </div>
           {timeOffLoading ? (
-            <p className="muted">Loading…</p>
+            <p className="muted teams-panel-loading">Loading…</p>
           ) : (
             <ul className="teams-timeoff-list">
               {timeOffRows.map((t) => (
@@ -594,16 +880,21 @@ export function Teams() {
       )}
 
       {tab === 'audit' && (
-        <div className="card wide teams-tab-panel">
-          <h2 className="card-title">Audit log</h2>
-          <button type="button" className="btn btn-secondary btn-sm teams-audit-refresh" onClick={() => void loadAudit()}>
-            Refresh
-          </button>
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head teams-panel-head--toolbar">
+            <div>
+              <p className="teams-panel-eyebrow">Security</p>
+              <h2 className="teams-panel-title">Audit log</h2>
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm teams-audit-refresh" onClick={() => void loadAudit()}>
+              Refresh
+            </button>
+          </header>
           {auditLoading ? (
-            <p className="muted">Loading…</p>
+            <p className="muted teams-panel-loading">Loading…</p>
           ) : (
-            <div className="table-wrap">
-              <table className="data-table">
+            <div className="table-wrap teams-table-wrap">
+              <table className="data-table teams-table">
                 <thead>
                   <tr>
                     <th>When</th>
@@ -629,10 +920,15 @@ export function Teams() {
       )}
 
       {tab === 'settings' && isAdmin && (
-        <div className="card wide teams-tab-panel">
-          <h2 className="card-title">Work schedule &amp; policies</h2>
-          <p className="muted small">Late / Present on attendance uses expected start (per member override on member doc if set).</p>
-          <div className="form teams-settings-form">
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Rules</p>
+            <h2 className="teams-panel-title">Schedule &amp; policies</h2>
+            <p className="teams-panel-lede muted small">
+              Expected start drives Late / Present. Members can override their own start in their profile.
+            </p>
+          </header>
+          <div className="form teams-settings-form teams-profile-form">
             <div className="teams-settings-row">
               <label>
                 Expected start (hour)
@@ -655,18 +951,23 @@ export function Teams() {
               Suggest clock out after (hours on shift, optional)
               <input type="number" min={1} step={0.5} value={polAutoOut} onChange={(e) => setPolAutoOut(e.target.value)} placeholder="e.g. 10" />
             </label>
-            <button type="button" className="btn btn-primary" disabled={settingsPending} onClick={() => void saveTeamSettings()}>
-              Save policies
-            </button>
+            <div className="teams-actions">
+              <button type="button" className="btn btn-primary" disabled={settingsPending} onClick={() => void saveTeamSettings()}>
+                Save policies
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {tab === 'backup' && isAdmin && (
-        <div className="card wide teams-tab-panel">
-          <h2 className="card-title">Data backup</h2>
-          <p className="muted small">Download JSON of members and all day entries in the range (client-side export).</p>
-          <div className="admin-toolbar">
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <p className="teams-panel-eyebrow">Export</p>
+            <h2 className="teams-panel-title">Data backup</h2>
+            <p className="teams-panel-lede muted small">Client-side JSON: members and day entries in the range.</p>
+          </header>
+          <div className="admin-toolbar teams-toolbar">
             <label>
               From
               <input type="date" value={backupFrom} onChange={(e) => setBackupFrom(e.target.value)} />
@@ -675,7 +976,7 @@ export function Teams() {
               To
               <input type="date" value={backupTo} onChange={(e) => setBackupTo(e.target.value)} />
             </label>
-            <button type="button" className="btn btn-primary" disabled={backupPending} onClick={() => void runBackup()}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={backupPending} onClick={() => void runBackup()}>
               Download JSON
             </button>
           </div>
@@ -684,9 +985,10 @@ export function Teams() {
 
       {adjustRow && (
         <div className="teams-modal-backdrop" role="presentation" onClick={() => !adjPending && setAdjustRow(null)}>
-          <div className="teams-modal card" role="dialog" onClick={(e) => e.stopPropagation()}>
-            <h3 className="card-title">Adjust punch — {adjustRow.displayName}</h3>
-            <div className="form">
+          <div className="teams-modal teams-modal--sheet card" role="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3 className="teams-modal__title">Adjust punch</h3>
+            <p className="teams-modal__sub muted small">{adjustRow.displayName}</p>
+            <div className="form teams-modal__form">
               <label>
                 Date
                 <input type="date" value={adjDateId} onChange={(e) => setAdjDateId(e.target.value)} />

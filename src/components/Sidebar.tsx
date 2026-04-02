@@ -3,8 +3,8 @@ import {
   BarChart3,
   CalendarClock,
   ClipboardList,
-  History,
   Layers,
+  Timer,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
@@ -86,9 +86,9 @@ export function Sidebar({
                 <CalendarClock size={20} strokeWidth={2} />
                 <span className="sidebar-link-text">Attendance</span>
               </NavLink>
-              <NavLink to="/history" className={linkClass} onClick={onClose} title="History">
-                <History size={20} strokeWidth={2} />
-                <span className="sidebar-link-text">History</span>
+              <NavLink to="/timesheet" className={linkClass} onClick={onClose} title="Timesheet">
+                <Timer size={20} strokeWidth={2} />
+                <span className="sidebar-link-text">Timesheet</span>
               </NavLink>
               {canLeadTeam && (
                 <>

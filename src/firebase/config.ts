@@ -1,5 +1,4 @@
 import { initializeApp } from 'firebase/app';
-import { initializeAppCheck, ReCaptchaV3Provider } from 'firebase/app-check';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 import { connectAuthEmulator, getAuth } from 'firebase/auth';
 import {
@@ -38,13 +37,8 @@ if (import.meta.env.DEV) {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-const appCheckKey = envStr('VITE_APPCHECK_RECAPTCHA_SITE_KEY');
-if (typeof window !== 'undefined' && appCheckKey) {
-  initializeAppCheck(app, {
-    provider: new ReCaptchaV3Provider(appCheckKey),
-    isTokenAutoRefreshEnabled: true,
-  });
-}
+// App Check temporarily disabled. To restore: import initializeAppCheck + ReCaptchaV3Provider
+// from 'firebase/app-check', then initialize with VITE_APPCHECK_RECAPTCHA_SITE_KEY when set.
 
 function createDb() {
   if (import.meta.env.VITE_USE_EMULATORS === 'true') {

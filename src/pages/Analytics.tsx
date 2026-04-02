@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   Bar,
   BarChart,
@@ -11,12 +11,19 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { AlertTriangle, CalendarDays, Clock, FileSpreadsheet, TrendingUp, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarDays,
+  Clock,
+  Download,
+  TrendingUp,
+  Users,
+} from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { formatShortDayLabel, lastNDates } from '../lib/date';
-import { entryWorkedHours, parseDayEntry } from '../lib/dayEntry';
+import { dayHasPunches, entryHoursByLocation, entryWorkedHours, parseDayEntry } from '../lib/dayEntry';
 import { TeamAvatar } from '../components/TeamAvatar';
 
 const OVERTIME_THRESHOLD_H = 8;
@@ -148,18 +155,16 @@ export function Analytics() {
         let employees = 0;
         for (const docSnap of entrySnaps[i]!.docs) {
           const entry = parseDayEntry(docSnap.data() as Record<string, unknown>);
-          if (!entry?.clockIn) continue;
+          if (!entry || !dayHasPunches(entry)) continue;
           employees += 1;
           const h = entryWorkedHours(entry, now);
           hours += h;
           if (h > OVERTIME_THRESHOLD_H) overtimePersonDays += 1;
-          if (entry.workLocation === 'office') {
-            officeHours += h;
-            officeHoursTotal += h;
-          } else if (entry.workLocation === 'remote') {
-            remoteHours += h;
-            remoteHoursTotal += h;
-          }
+          const { office, remote } = entryHoursByLocation(entry, now);
+          officeHours += office;
+          remoteHours += remote;
+          officeHoursTotal += office;
+          remoteHoursTotal += remote;
         }
         return {
           dateId,
@@ -198,7 +203,7 @@ export function Analytics() {
       dateRange.forEach((_d, i) => {
         for (const docSnap of entrySnaps[i]!.docs) {
           const entry = parseDayEntry(docSnap.data() as Record<string, unknown>);
-          if (!entry?.clockIn) continue;
+          if (!entry || !dayHasPunches(entry)) continue;
           const uid = docSnap.id;
           const h = entryWorkedHours(entry, now);
           const cur = byUser.get(uid) ?? { hours: 0, days: 0 };
@@ -257,121 +262,140 @@ export function Analytics() {
     });
   };
 
+  const rangeOptions: { value: RangeChoice; label: string }[] = [
+    { value: 7, label: '7d' },
+    { value: 14, label: '14d' },
+    { value: 30, label: '30d' },
+  ];
+
+  const chartTooltipStyle: CSSProperties = {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: '10px',
+    fontSize: '0.8125rem',
+    boxShadow: '0 4px 20px rgb(15 23 42 / 8%)',
+  };
+
   return (
     <div className="page analytics-page">
-      <header className="analytics-header">
-        <div className="analytics-header-row">
-          <div>
-            <h1>Reports &amp; Analytics</h1>
-            <p className="analytics-sub">Insights into your team&apos;s attendance and productivity</p>
-          </div>
-          <div className="analytics-toolbar">
-            <label className="analytics-range-label">
-              <span className="muted small">Range</span>
-              <select
-                className="history-select analytics-range-select"
-                value={rangeDays}
-                onChange={(e) => setRangeDays(Number(e.target.value) as RangeChoice)}
-                aria-label="Date range"
+      <header className="analytics-top">
+        <div className="analytics-top__intro">
+          <h1 className="analytics-title">Reports & Analytics</h1>
+          {/* <p className="analytics-lede">Attendance and hours across your workspace.</p> */}
+        </div>
+        <div className="analytics-top__controls">
+          <div className="analytics-segment" role="group" aria-label="Report range">
+            {rangeOptions.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                className={`analytics-segment__btn${rangeDays === value ? ' analytics-segment__btn--active' : ''}`}
+                onClick={() => setRangeDays(value)}
               >
-                <option value={7}>Last 7 days</option>
-                <option value={14}>Last 14 days</option>
-                <option value={30}>Last 30 days</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              className="btn btn-secondary btn-sm analytics-export-btn"
-              disabled={loading || !series.length}
-              onClick={onExportCsv}
-            >
-              <FileSpreadsheet size={16} aria-hidden />
-              Export CSV
-            </button>
+                {label}
+              </button>
+            ))}
           </div>
+          <button
+            type="button"
+            className="btn btn-secondary analytics-export-icon"
+            disabled={loading || !series.length}
+            onClick={onExportCsv}
+            aria-label="Export CSV"
+            title="Export CSV"
+          >
+            <Download size={18} strokeWidth={2} aria-hidden />
+          </button>
         </div>
       </header>
 
       {error && <p className="error analytics-error">{error}</p>}
 
-      <div className="analytics-kpis">
-        <div className="card analytics-kpi-card">
-          <Clock className="analytics-kpi-icon analytics-kpi-icon--blue" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Total hours</span>
-            <span className="analytics-kpi-value">{loading ? '—' : kpis.totalHours}</span>
+      <section className="card wide analytics-stats-card" aria-label="Summary metrics">
+        <div className="analytics-stats">
+          <div className="analytics-stat">
+            <Clock className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Total hours</span>
+              <span className="analytics-stat__value">{loading ? '—' : kpis.totalHours}</span>
+            </div>
+          </div>
+          <div className="analytics-stat">
+            <CalendarDays className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Active days</span>
+              <span className="analytics-stat__value">{loading ? '—' : kpis.totalDays}</span>
+            </div>
+          </div>
+          <div className="analytics-stat">
+            <TrendingUp className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Avg hrs</span>
+              <span className="analytics-stat__value">{loading ? '—' : kpis.avgHoursPerDay}</span>
+            </div>
+          </div>
+          <div className="analytics-stat">
+            <Users className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Avg people</span>
+              <span className="analytics-stat__value">{loading ? '—' : kpis.avgTeamPerDay}</span>
+            </div>
+          </div>
+          <div className="analytics-stat">
+            <Users className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Office / remote</span>
+              <span className="analytics-stat__value analytics-stat__value--dense">
+                {loading ? '—' : `${kpis.officeHoursTotal} · ${kpis.remoteHoursTotal}`}
+              </span>
+              <span className="analytics-stat__hint">hrs</span>
+            </div>
+          </div>
+          <div className="analytics-stat">
+            <AlertTriangle className="analytics-stat__glyph" size={18} strokeWidth={2} aria-hidden />
+            <div className="analytics-stat__body">
+              <span className="analytics-stat__label">Heavy days (&gt;{OVERTIME_THRESHOLD_H}h)</span>
+              <span className="analytics-stat__value">{loading ? '—' : kpis.overtimePersonDays}</span>
+              {/* <span className="analytics-stat__hint">person-days</span> */}
+            </div>
           </div>
         </div>
-        <div className="card analytics-kpi-card">
-          <CalendarDays className="analytics-kpi-icon analytics-kpi-icon--green" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Active days</span>
-            <span className="analytics-kpi-value">{loading ? '—' : kpis.totalDays}</span>
-          </div>
-        </div>
-        <div className="card analytics-kpi-card">
-          <TrendingUp className="analytics-kpi-icon analytics-kpi-icon--purple" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Avg hours / person-day</span>
-            <span className="analytics-kpi-value">{loading ? '—' : kpis.avgHoursPerDay}</span>
-          </div>
-        </div>
-        <div className="card analytics-kpi-card">
-          <Users className="analytics-kpi-icon analytics-kpi-icon--orange" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Avg team / active day</span>
-            <span className="analytics-kpi-value">{loading ? '—' : kpis.avgTeamPerDay}</span>
-          </div>
-        </div>
-        <div className="card analytics-kpi-card">
-          <Users className="analytics-kpi-icon analytics-kpi-icon--blue" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Office / remote hours</span>
-            <span className="analytics-kpi-value analytics-kpi-value--split">
-              {loading
-                ? '—'
-                : `${kpis.officeHoursTotal} / ${kpis.remoteHoursTotal}`}
-            </span>
-            <span className="analytics-kpi-sublabel muted small">office · remote</span>
-          </div>
-        </div>
-        <div className="card analytics-kpi-card">
-          <AlertTriangle className="analytics-kpi-icon analytics-kpi-icon--orange" size={22} strokeWidth={1.75} />
-          <div className="analytics-kpi-text">
-            <span className="analytics-kpi-label">Heavy days (&gt;{OVERTIME_THRESHOLD_H}h)</span>
-            <span className="analytics-kpi-value">{loading ? '—' : kpis.overtimePersonDays}</span>
-            <span className="analytics-kpi-sublabel muted small">person-days in range</span>
-          </div>
-        </div>
-      </div>
+      </section>
 
       <div className="analytics-charts">
         <section className="card analytics-chart-card">
-          <h2 className="analytics-chart-title">Last {rangeDays} days — total hours</h2>
+          <div className="analytics-chart-head">
+            <h2 className="analytics-chart-title">Total hours</h2>
+          </div>
           <div className="analytics-chart-wrap">
             {loading ? (
               <div className="analytics-chart-skeleton" aria-hidden />
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minHeight={260}>
-                <LineChart data={series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} allowDecimals />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
+              <ResponsiveContainer width="100%" height="100%" minHeight={240}>
+                <LineChart data={series} margin={{ top: 4, right: 4, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--border)" />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
                   />
-                  <Legend />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                    allowDecimals
+                    width={36}
+                  />
+                  <Tooltip contentStyle={chartTooltipStyle} />
                   <Line
                     type="monotone"
                     dataKey="hours"
-                    name="Total hours"
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    dot={{ r: 4, fill: '#2563eb' }}
+                    name="Hours"
+                    stroke="#f4815e"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#f4815e', strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -379,63 +403,81 @@ export function Analytics() {
           </div>
         </section>
         <section className="card analytics-chart-card">
-          <h2 className="analytics-chart-title">Last {rangeDays} days — hours by location</h2>
+          <div className="analytics-chart-head">
+            <h2 className="analytics-chart-title">Hours by location</h2>
+          </div>
           <div className="analytics-chart-wrap">
             {loading ? (
               <div className="analytics-chart-skeleton" aria-hidden />
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minHeight={260}>
-                <BarChart data={series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} allowDecimals />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
+              <ResponsiveContainer width="100%" height="100%" minHeight={240}>
+                <BarChart data={series} margin={{ top: 4, right: 4, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--border)" />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
                   />
-                  <Legend />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                    allowDecimals
+                    width={36}
+                  />
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                  <Legend wrapperStyle={{ fontSize: '0.75rem', paddingTop: 8 }} />
                   <Bar
                     dataKey="officeHours"
                     stackId="loc"
                     name="Office"
-                    fill="#2563eb"
+                    fill="#94a3b8"
                     radius={[0, 0, 0, 0]}
                   />
                   <Bar
                     dataKey="remoteHours"
                     stackId="loc"
                     name="Remote"
-                    fill="#7c3aed"
-                    radius={[4, 4, 0, 0]}
+                    fill="#f4815e"
+                    radius={[6, 6, 0, 0]}
                   />
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
         </section>
-        <section className="card analytics-chart-card">
-          <h2 className="analytics-chart-title">Last {rangeDays} days — headcount</h2>
+        <section className="card analytics-chart-card analytics-chart-card--wide">
+          <div className="analytics-chart-head">
+            <h2 className="analytics-chart-title">People per day</h2>
+          </div>
           <div className="analytics-chart-wrap">
             {loading ? (
               <div className="analytics-chart-skeleton" aria-hidden />
             ) : (
-              <ResponsiveContainer width="100%" height="100%" minHeight={260}>
-                <BarChart data={series} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--text-muted)' }} />
-                  <YAxis tick={{ fontSize: 11, fill: 'var(--text-muted)' }} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--surface)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                    }}
+              <ResponsiveContainer width="100%" height="100%" minHeight={240}>
+                <BarChart data={series} margin={{ top: 4, right: 4, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="var(--border)" />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
                   />
-                  <Legend />
-                  <Bar dataKey="employees" name="Employees" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 11, fill: 'var(--text-muted)' }}
+                    allowDecimals={false}
+                    width={36}
+                  />
+                  <Tooltip contentStyle={chartTooltipStyle} />
+                  <Bar
+                    dataKey="employees"
+                    name="People"
+                    fill="#cbd5e1"
+                    radius={[6, 6, 0, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -443,8 +485,11 @@ export function Analytics() {
         </section>
       </div>
 
-      <section className="card analytics-table-card">
-        <h2 className="analytics-table-title">Team member statistics</h2>
+      <section className="card wide analytics-table-card">
+        <div className="analytics-table-head">
+          <h2 className="analytics-table-title">Members</h2>
+          <span className="analytics-table-caption muted small">Hours in selected range</span>
+        </div>
         <div className="analytics-table-scroll">
           <table className="analytics-table">
             <thead>

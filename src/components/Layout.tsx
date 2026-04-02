@@ -56,9 +56,6 @@ export function Layout() {
         onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
       />
       <div className="app-main">
-        <header className="app-topbar">
-          <span className="app-topbar-brand">ZenTeams</span>
-        </header>
         <div
           className={`app-content${userPreferences?.compactUI ? ' app-content--compact' : ''}`}
         >

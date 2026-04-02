@@ -33,6 +33,15 @@ service cloud.firestore {
       return isTeamAdmin(teamId) || isTeamManager(teamId);
     }
 
+    function timesheetOptionalFields(r) {
+      return (!('activity' in r) || (r.activity is string && r.activity.size() <= 200))
+        && (!('startTimeLocal' in r) || r.startTimeLocal == null
+          || (r.startTimeLocal is string && r.startTimeLocal.size() > 0 && r.startTimeLocal.size() <= 5))
+        && (!('endTimeLocal' in r) || r.endTimeLocal == null
+          || (r.endTimeLocal is string && r.endTimeLocal.size() > 0 && r.endTimeLocal.size() <= 5))
+        && (!('tags' in r) || r.tags == null || (r.tags is string && r.tags.size() <= 500));
+    }
+
     match /teams/{teamId} {
       allow read: if isTeamMember(teamId);
       allow create: if isSignedIn()
@@ -69,7 +78,7 @@ service cloud.firestore {
           && request.resource.data.role in ['admin', 'manager', 'member']
           && request.resource.data.displayName is string
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'displayName', 'expectedStartHour', 'expectedStartMinute']);
-        allow delete: if false;
+        allow delete: if isTeamAdmin(teamId) && request.auth.uid != userId;
       }
 
       match /days/{dateId}/entries/{entryUserId} {
@@ -97,6 +106,68 @@ service cloud.firestore {
           && request.resource.data.actorUid == request.auth.uid
           && request.resource.data.action is string;
         allow update, delete: if false;
+      }
+
+      match /timesheetLines/{lineId} {
+        allow read: if isTeamMember(teamId)
+          && (
+            resource.data.userId == request.auth.uid
+            || isTeamAdminOrManager(teamId)
+          );
+        allow create: if isTeamMember(teamId)
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.dateId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.project is string
+          && request.resource.data.project.size() > 0
+          && request.resource.data.project.size() <= 200
+          && request.resource.data.client is string
+          && request.resource.data.client.size() > 0
+          && request.resource.data.client.size() <= 200
+          && request.resource.data.task is string
+          && request.resource.data.task.size() > 0
+          && request.resource.data.task.size() <= 200
+          && request.resource.data.hours is number
+          && request.resource.data.hours > 0
+          && request.resource.data.hours <= 24
+          && request.resource.data.createdAt is timestamp
+          && request.resource.data.updatedAt is timestamp
+          && (
+            !('notes' in request.resource.data)
+            || request.resource.data.notes == null
+            || (
+              request.resource.data.notes is string
+              && request.resource.data.notes.size() <= 2000
+            )
+          )
+          && timesheetOptionalFields(request.resource.data);
+        allow update: if isTeamMember(teamId)
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.dateId.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.project is string
+          && request.resource.data.project.size() > 0
+          && request.resource.data.project.size() <= 200
+          && request.resource.data.client is string
+          && request.resource.data.client.size() > 0
+          && request.resource.data.client.size() <= 200
+          && request.resource.data.task is string
+          && request.resource.data.task.size() > 0
+          && request.resource.data.task.size() <= 200
+          && request.resource.data.hours is number
+          && request.resource.data.hours > 0
+          && request.resource.data.hours <= 24
+          && request.resource.data.updatedAt is timestamp
+          && (
+            !('notes' in request.resource.data)
+            || request.resource.data.notes == null
+            || (
+              request.resource.data.notes is string
+              && request.resource.data.notes.size() <= 2000
+            )
+          )
+          && timesheetOptionalFields(request.resource.data);
+        allow delete: if isTeamMember(teamId) && resource.data.userId == request.auth.uid;
       }
     }
   }
