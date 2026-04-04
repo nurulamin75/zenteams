@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { collection, doc, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, Timestamp, updateDoc } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
-import { ArrowDownUp, ChevronLeft, FileSpreadsheet, FileText, FileType } from 'lucide-react';
+import { ArrowDownUp, ChevronLeft, FileSpreadsheet, FileText, FileType, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
 import { attendanceRowPill } from '../lib/attendance';
@@ -12,7 +12,9 @@ import {
   dayHasPunches,
   entryWorkedHours,
   getOpenSession,
+  getOpenSessionIndex,
   parseDayEntry,
+  purgeLegacyDayEntryFields,
   sessionInOutLines,
 } from '../lib/dayEntry';
 import {
@@ -26,14 +28,41 @@ import {
   HISTORY_LOOKBACK,
   type HistoryRow,
   historyRowsCacheKey,
+  invalidateHistoryRowsCache,
   readHistoryRowsCache,
   writeHistoryRowsCache,
 } from '../lib/historyRowsCache';
 import { effectiveExpectedStartForDate } from '../lib/teamSettings';
 import { pillTimeOffOpts, timeOffSetsForMember, type TimeOffDocLite } from '../lib/timeOffLookup';
-import type { TimeOffKind } from '../types';
+import type { DayBreak, TimeOffKind } from '../types';
 
 const INITIAL_CHUNK = 10;
+
+function activeBreakIndex(breaks: DayBreak[]): number {
+  for (let i = breaks.length - 1; i >= 0; i--) {
+    if (breaks[i]!.end == null) return i;
+  }
+  return -1;
+}
+
+function toDatetimeLocalValue(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `${y}-${m}-${day}T${h}:${min}`;
+}
+
+function suggestedClockOut(dateId: string, clockIn: Date): Date {
+  const [y, m, d] = dateId.split('-').map(Number);
+  const endOfDay = new Date(y, m - 1, d, 23, 59, 0, 0);
+  const now = Date.now();
+  const lower = clockIn.getTime() + 60 * 1000;
+  const eightH = clockIn.getTime() + 8 * 60 * 60 * 1000;
+  const upper = Math.min(endOfDay.getTime(), now);
+  return new Date(Math.min(Math.max(eightH, lower), upper));
+}
 
 type HistoryFilter = 'all' | 'punched' | 'completed' | 'empty';
 type SortDir = 'desc' | 'asc';
@@ -63,6 +92,10 @@ export function History() {
   const [filter, setFilter] = useState<HistoryFilter>('all');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [, setLiveTick] = useState(0);
+  const [resolveDateId, setResolveDateId] = useState<string | null>(null);
+  const [clockOutLocal, setClockOutLocal] = useState('');
+  const [resolveError, setResolveError] = useState('');
+  const [resolveBusy, setResolveBusy] = useState(false);
 
   const dates = useMemo(() => lastNDates(HISTORY_LOOKBACK), []);
 
@@ -144,20 +177,21 @@ export function History() {
     void load();
   }, [load]);
 
-  const todayEntry = useMemo(
-    () => rows.find((r) => r.dateId === todayId)?.entry,
-    [rows, todayId]
-  );
-  const openShiftTickKey = (() => {
-    const open = todayEntry ? getOpenSession(todayEntry) : null;
-    return open ? open.clockIn.toMillis() : null;
-  })();
+  const hasAnyOpenSession = useMemo(() => rows.some((r) => dayHasOpenSession(r.entry)), [rows]);
 
   useEffect(() => {
-    if (openShiftTickKey == null) return;
+    if (!hasAnyOpenSession) return;
     const id = window.setInterval(() => setLiveTick((t) => t + 1), 1000);
     return () => clearInterval(id);
-  }, [openShiftTickKey]);
+  }, [hasAnyOpenSession]);
+
+  useEffect(() => {
+    if (!resolveDateId) return;
+    const row = rows.find((r) => r.dateId === resolveDateId);
+    if (!row?.entry || !getOpenSession(row.entry)) {
+      setResolveDateId(null);
+    }
+  }, [resolveDateId, rows]);
 
   const displayRows = useMemo(() => {
     const f = filterRows(rows, filter);
@@ -179,6 +213,65 @@ export function History() {
     const d = new Date();
     return `zenteams-history-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
+
+  const closeResolveModal = useCallback(() => {
+    setResolveDateId(null);
+    setResolveError('');
+  }, []);
+
+  const confirmResolveOpen = useCallback(async () => {
+    if (!user || !teamId || !resolveDateId) return;
+    const parsed = new Date(clockOutLocal);
+    if (Number.isNaN(parsed.getTime())) {
+      setResolveError('Enter a valid date and time.');
+      return;
+    }
+    setResolveBusy(true);
+    setResolveError('');
+    try {
+      const ref = doc(db, 'teams', teamId, 'days', resolveDateId, 'entries', user.uid);
+      const snap = await getDoc(ref);
+      const entry = snap.exists() ? parseDayEntry(snap.data() as Record<string, unknown>) : null;
+      const si = getOpenSessionIndex(entry);
+      if (si < 0 || !entry) {
+        setResolveError('This day no longer has an open shift.');
+        return;
+      }
+      const clockInMs = entry.sessions[si]!.clockIn.toMillis();
+      if (parsed.getTime() <= clockInMs) {
+        setResolveError('Clock-out must be after clock-in.');
+        return;
+      }
+      if (parsed.getTime() > Date.now() + 60_000) {
+        setResolveError('Clock-out cannot be in the future.');
+        return;
+      }
+      const outTs = Timestamp.fromDate(parsed);
+      const sessions = entry.sessions.map((s, i) => {
+        if (i !== si) return s;
+        let breaks = s.breaks;
+        const bi = activeBreakIndex(breaks);
+        if (bi >= 0) {
+          breaks = breaks.map((b, j) => (j === bi ? { ...b, end: outTs } : b));
+        }
+        return { ...s, clockOut: outTs, breaks };
+      });
+      await updateDoc(ref, {
+        sessions,
+        updatedAt: outTs,
+        ...purgeLegacyDayEntryFields(),
+      });
+      invalidateHistoryRowsCache(user.uid, teamId);
+      const after = await getDoc(ref);
+      const newEntry = after.exists() ? parseDayEntry(after.data() as Record<string, unknown>) : null;
+      setRows((prev) => prev.map((r) => (r.dateId === resolveDateId ? { ...r, entry: newEntry } : r)));
+      setResolveDateId(null);
+    } catch (e) {
+      setResolveError(e instanceof Error ? e.message : 'Update failed');
+    } finally {
+      setResolveBusy(false);
+    }
+  }, [user, teamId, resolveDateId, clockOutLocal]);
 
   return (
     <div className="page history-page">
@@ -295,6 +388,7 @@ export function History() {
                         : '—';
                     const wl = dayDisplayWorkLocation(entry);
                     const loc = wl === 'office' ? 'Office' : wl === 'remote' ? 'Remote' : '—';
+                    const isPastOpen = Boolean(entry && dayHasOpenSession(entry) && dateId !== todayId);
 
                     return (
                       <tr key={dateId} className={dateId === todayId ? 'history-table__today' : undefined}>
@@ -320,7 +414,26 @@ export function History() {
                         <td className="history-table__num">{duration}</td>
                         <td>{loc}</td>
                         <td>
-                          <span className={`attendance-pill attendance-pill--${pill.variant}`}>{pill.label}</span>
+                          <div className="history-status-cell">
+                            <span className={`attendance-pill attendance-pill--${pill.variant}`}>{pill.label}</span>
+                            {isPastOpen && entry && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-sm history-open-resolve-btn"
+                                onClick={() => {
+                                  const o = getOpenSession(entry);
+                                  if (!o) return;
+                                  setClockOutLocal(
+                                    toDatetimeLocalValue(suggestedClockOut(dateId, o.clockIn.toDate()))
+                                  );
+                                  setResolveError('');
+                                  setResolveDateId(dateId);
+                                }}
+                              >
+                                Set clock-out
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -335,6 +448,66 @@ export function History() {
           </>
         )}
       </div>
+
+      {resolveDateId && (
+        <div className="timesheet-modal-backdrop" role="presentation" onClick={closeResolveModal}>
+          <div
+            className="timesheet-modal card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="history-resolve-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="timesheet-modal__head">
+              <h2 id="history-resolve-title" className="timesheet-modal__title">
+                Close open shift
+              </h2>
+              <button
+                type="button"
+                className="timesheet-modal__close btn btn-ghost btn-sm"
+                onClick={closeResolveModal}
+              >
+                <X size={22} strokeWidth={2} aria-label="Close" />
+              </button>
+            </div>
+            {resolveError && <p className="error timesheet-modal-error">{resolveError}</p>}
+            <div className="timesheet-modal-body">
+              <p className="muted small history-resolve-lede">
+                You left a shift open on {formatLongDate(resolveDateId)}. Set when you finished; any open break on
+                that shift ends at the same time.
+              </p>
+              <label className="history-resolve-field">
+                <span className="history-field__label">Clock-out</span>
+                <input
+                  type="datetime-local"
+                  className="history-resolve-datetime"
+                  value={clockOutLocal}
+                  disabled={resolveBusy}
+                  onChange={(e) => setClockOutLocal(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="timesheet-modal__actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={resolveBusy}
+                onClick={closeResolveModal}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={resolveBusy}
+                onClick={() => void confirmResolveOpen()}
+              >
+                {resolveBusy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

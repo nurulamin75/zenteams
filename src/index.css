@@ -36,7 +36,7 @@ html[data-theme='dark'] {
   --accent: #f4815e;
   --accent-hover: #ff9a7a;
   --accent-soft: rgb(244 129 94 / 16%);
-  --sidebar-bg: #18181c;
+  --sidebar-bg: #transparent;
   --sidebar-border: #2d2d33;
   --sidebar-active-bg: rgb(244 129 94 / 14%);
   --link: #ffb399;
@@ -502,7 +502,6 @@ html[data-theme='dark'] .auth-card {
   font: inherit;
   text-align: left;
   color: var(--text);
-  background-color: white;
 }
 
 .team-switcher-name {
@@ -1753,6 +1752,34 @@ html[data-theme='dark'] .attendance-pill--pto {
 
 .history-table__num {
   font-variant-numeric: tabular-nums;
+}
+
+.history-status-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.history-open-resolve-btn {
+  flex-shrink: 0;
+}
+
+.history-resolve-lede {
+  margin: 0 0 1rem;
+  line-height: 1.45;
+}
+
+.history-resolve-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.history-resolve-datetime {
+  min-width: 0;
+  width: 100%;
+  max-width: 22rem;
 }
 
 .history-table__today td {
