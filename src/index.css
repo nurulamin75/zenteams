@@ -502,6 +502,7 @@ html[data-theme='dark'] .auth-card {
   font: inherit;
   text-align: left;
   color: var(--text);
+  background: var(--sidebar-bg);
 }
 
 .team-switcher-name {
