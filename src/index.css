@@ -1831,6 +1831,60 @@ html[data-theme='dark'] .attendance-pill--pto {
   margin-bottom: 1rem;
 }
 
+.teams-perm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.teams-perm-head__icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--accent);
+  opacity: 0.9;
+}
+
+.teams-perm-fieldset {
+  border: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.teams-perm-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.teams-perm-radio input {
+  margin-top: 0.2rem;
+}
+
+.teams-perm-check-grid {
+  display: grid;
+  gap: 0.5rem 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+}
+
+.teams-perm-check {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.teams-perm-check--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .teams-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -2212,6 +2266,354 @@ html[data-theme='dark'] .teams-remove-btn:hover:not(:disabled) {
   border-radius: 8px;
 }
 
+/* ── Dashboard widgets (profile / progress / tracker) ── */
+.dashboard-widgets {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .dashboard-widgets {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+  }
+}
+
+.dashboard-widget {
+  margin: 0;
+  padding: 1.25rem 1.2rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.35rem;
+}
+
+/* Profile widget – full-bleed photo card */
+.db-profile {
+  padding: 0 !important;
+  overflow: hidden;
+  position: relative;
+  min-height: 17rem;
+  align-items: stretch !important;
+  text-align: left !important;
+  gap: 0 !important;
+}
+
+.db-profile__photo-btn {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.db-profile__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.db-profile__initials-bg {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(160deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 50%, #f59e0b) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.db-profile__initials {
+  font-size: 4rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.db-profile__photo-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: rgb(0 0 0 / 38%);
+  color: #fff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+
+.db-profile__photo-btn:hover .db-profile__photo-overlay,
+.db-profile__photo-btn:focus-visible .db-profile__photo-overlay {
+  opacity: 1;
+}
+
+.db-profile__photo-btn:disabled {
+  cursor: wait;
+}
+
+.db-profile__pill {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  right: 1rem;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 14px;
+  padding: 0.75rem 1rem;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 14%);
+  pointer-events: none;
+}
+
+html[data-theme='dark'] .db-profile__pill {
+  background: rgba(28, 28, 34, 0.88);
+}
+
+.db-profile__pill-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.db-profile__name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: #111827;
+}
+
+html[data-theme='dark'] .db-profile__name {
+  color: #f9fafb;
+}
+
+.db-profile__role {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+html[data-theme='dark'] .db-profile__role {
+  color: #9ca3af;
+}
+
+/* Progress widget */
+.db-progress {
+  align-items: stretch;
+  text-align: left;
+  gap: 0.75rem;
+}
+
+.db-progress__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.db-progress__big {
+  margin: 0 0 0.1rem;
+  font-size: 1.85rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.db-progress__sub {
+  margin: 0;
+}
+
+.db-progress__chart {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.25rem;
+  height: 6rem;
+  flex: 1;
+}
+
+.db-progress__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  gap: 0.3rem;
+  height: 100%;
+  position: relative;
+}
+
+.db-progress__bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+}
+
+.db-progress__bar {
+  width: 0.5rem;
+  min-height: 0.35rem;
+  border-radius: 99px;
+  background: var(--border);
+  transition: height 0.3s ease;
+}
+
+.db-progress__bar--today {
+  background: var(--accent);
+}
+
+.db-progress__dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.db-progress__bubble {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 0.18rem 0.4rem;
+  border-radius: 99px;
+}
+
+.db-progress__day {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
+}
+
+.db-progress__col--today .db-progress__day {
+  color: var(--accent);
+}
+
+.db-progress__bar-skel {
+  width: 0.5rem;
+  height: 40%;
+  border-radius: 99px;
+}
+
+/* Time tracker widget */
+.db-tracker__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  align-self: flex-start;
+}
+
+.db-tracker__ring-wrap {
+  position: relative;
+  width: 8rem;
+  height: 8rem;
+  flex-shrink: 0;
+}
+
+.db-tracker__ring {
+  width: 100%;
+  height: 100%;
+}
+
+.db-tracker__ring-track {
+  stroke: var(--border);
+}
+
+.db-tracker__ring-fill {
+  stroke: var(--accent);
+  transition: stroke-dashoffset 0.6s ease;
+}
+
+.db-tracker__center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+.db-tracker__time {
+  font-size: 1.45rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.db-tracker__label {
+  line-height: 1;
+}
+
+.db-tracker__error {
+  margin: 0.25rem 0;
+}
+
+.db-tracker__clock-out-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.db-tracker__clock-in {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.db-tracker__clock-in-label {
+  margin: 0;
+}
+
+.db-tracker__clock-in-btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.db-tracker__done {
+  margin: 0.25rem 0;
+}
+
+.db-tracker__view-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.65rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.75rem;
+}
+
+.db-tracker__view-link:hover {
+  color: var(--accent);
+}
+
+/* ─────────────────────────────────────────── */
 .dashboard-hero {
   margin-bottom: 1.5rem;
   padding-bottom: 1.25rem;
@@ -2345,9 +2747,9 @@ html[data-theme='dark'] .dashboard-alert {
   gap: 1rem;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 640px) {
   .dashboard-panels {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
   }
 }
@@ -3956,4 +4358,145 @@ html[data-theme='dark'] .teams-approval-status--approved {
 .teams-weekly-row input {
   width: 3.25rem;
   padding: 0.35rem;
+}
+
+/* ── Projects page ── */
+.projects-page {
+  max-width: 900px;
+}
+
+.projects-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.projects-filter-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+}
+
+.projects-filter-tab {
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.projects-filter-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.projects-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+
+.projects-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  margin: 0;
+  transition: box-shadow 0.15s;
+}
+
+.projects-card--archived {
+  opacity: 0.65;
+}
+
+.projects-card__icon-wrap {
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.projects-card__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.projects-card__name {
+  margin: 0 0 0.15rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projects-card__client {
+  margin: 0 0 0.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.projects-card__meta {
+  margin: 0;
+}
+
+.projects-card__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.projects-card__action-btn {
+  color: var(--text-muted);
+}
+
+.projects-card__action-btn:hover {
+  color: var(--accent);
+}
+
+.projects-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 3rem 1rem;
+  text-align: center;
+}
+
+.projects-empty__icon {
+  color: var(--text-muted);
+  opacity: 0.4;
+}
+
+.projects-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.projects-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.projects-card--skel {
+  min-height: 5rem;
 }

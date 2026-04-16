@@ -8,6 +8,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 function envStr(key: string): string {
   const v = import.meta.env[key];
@@ -58,6 +59,7 @@ function createDb() {
 }
 
 export const db = createDb();
+export const storage = getStorage(app);
 
 void (async () => {
   if (typeof window === 'undefined' || !measurementId) return;

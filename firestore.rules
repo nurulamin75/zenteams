@@ -87,7 +87,7 @@ service cloud.firestore {
           && request.resource.data.joinedAt == resource.data.joinedAt
           && request.resource.data.role in ['admin', 'manager', 'member', 'auditor']
           && request.resource.data.displayName is string
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'displayName', 'expectedStartHour', 'expectedStartMinute', 'timezone']);
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role', 'displayName', 'expectedStartHour', 'expectedStartMinute', 'timezone', 'permissions']);
         allow delete: if isTeamAdmin(teamId) && request.auth.uid != userId;
       }
 
@@ -182,16 +182,17 @@ service cloud.firestore {
 
       match /projects/{projectId} {
         allow read: if isTeamMember(teamId);
-        allow create: if isTeamAdmin(teamId)
+        allow create: if isTeamAdminOrManager(teamId)
           && request.resource.data.name is string
           && request.resource.data.name.size() > 0
           && request.resource.data.name.size() <= 200
           && request.resource.data.client is string
           && request.resource.data.client.size() <= 200
           && request.resource.data.archived is bool
-          && request.resource.data.createdAt == request.time;
-        allow update: if isTeamAdmin(teamId)
-          && request.resource.data.createdAt == resource.data.createdAt;
+          && request.resource.data.createdAt is timestamp;
+        allow update: if isTeamAdminOrManager(teamId)
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'client', 'archived', 'updatedAt']);
         allow delete: if isTeamAdmin(teamId);
       }
 

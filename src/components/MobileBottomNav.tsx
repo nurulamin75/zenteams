@@ -1,6 +1,7 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   CalendarClock,
+  CalendarRange,
   ClipboardList,
   LayoutDashboard,
   MoreHorizontal,
@@ -16,7 +17,7 @@ function itemClass({ isActive }: { isActive: boolean }) {
 }
 
 export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
-  const { teamId, role } = useAuth();
+  const { teamId, role, canAccessModule } = useAuth();
   const location = useLocation();
   const hasTeam = Boolean(teamId);
   const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
@@ -25,6 +26,7 @@ export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
     location.pathname === '/reports' ||
     location.pathname === '/calendar' ||
     location.pathname === '/history' ||
+    location.pathname === '/projects' ||
     location.pathname === '/settings';
 
   if (!hasTeam) {
@@ -59,31 +61,45 @@ export function MobileBottomNav({ onOpenMore }: { onOpenMore: () => void }) {
     );
   }
 
+  const fourthSlot =
+    canLeadTeam && canAccessModule('teams') ? (
+      <NavLink to="/teams" className={itemClass}>
+        <Users size={22} strokeWidth={2} aria-hidden />
+        <span className="mobile-nav__label">Teams</span>
+      </NavLink>
+    ) : canAccessModule('settings') ? (
+      <NavLink to="/settings" className={itemClass}>
+        <Settings size={22} strokeWidth={2} aria-hidden />
+        <span className="mobile-nav__label">Settings</span>
+      </NavLink>
+    ) : canAccessModule('calendar') ? (
+      <NavLink to="/calendar" className={itemClass}>
+        <CalendarRange size={22} strokeWidth={2} aria-hidden />
+        <span className="mobile-nav__label">Cal</span>
+      </NavLink>
+    ) : null;
+
   return (
     <nav className="mobile-nav" aria-label="Main navigation">
-      <NavLink to="/" end className={itemClass}>
-        <LayoutDashboard size={22} strokeWidth={2} aria-hidden />
-        <span className="mobile-nav__label">Home</span>
-      </NavLink>
-      <NavLink to="/today" className={itemClass}>
-        <CalendarClock size={22} strokeWidth={2} aria-hidden />
-        <span className="mobile-nav__label">Today</span>
-      </NavLink>
-      <NavLink to="/timesheet" className={itemClass}>
-        <Timer size={22} strokeWidth={2} aria-hidden />
-        <span className="mobile-nav__label">Sheet</span>
-      </NavLink>
-      {canLeadTeam ? (
-        <NavLink to="/teams" className={itemClass}>
-          <Users size={22} strokeWidth={2} aria-hidden />
-          <span className="mobile-nav__label">Teams</span>
-        </NavLink>
-      ) : (
-        <NavLink to="/settings" className={itemClass}>
-          <Settings size={22} strokeWidth={2} aria-hidden />
-          <span className="mobile-nav__label">Settings</span>
+      {canAccessModule('dashboard') && (
+        <NavLink to="/" end className={itemClass}>
+          <LayoutDashboard size={22} strokeWidth={2} aria-hidden />
+          <span className="mobile-nav__label">Home</span>
         </NavLink>
       )}
+      {canAccessModule('attendance') && (
+        <NavLink to="/today" className={itemClass}>
+          <CalendarClock size={22} strokeWidth={2} aria-hidden />
+          <span className="mobile-nav__label">Today</span>
+        </NavLink>
+      )}
+      {canAccessModule('timesheet') && (
+        <NavLink to="/timesheet" className={itemClass}>
+          <Timer size={22} strokeWidth={2} aria-hidden />
+          <span className="mobile-nav__label">Sheet</span>
+        </NavLink>
+      )}
+      {fourthSlot}
       <button
         type="button"
         className={`mobile-nav__item mobile-nav__item--trigger${moreTabActive ? ' mobile-nav__item--active' : ''}`}

@@ -9,12 +9,14 @@ import {
   limit,
   orderBy,
   query,
+  serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
+import { Shield, X } from 'lucide-react';
 import { TeamInviteSection } from '../components/TeamInviteSection';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../firebase/config';
@@ -30,7 +32,14 @@ import {
 } from '../lib/dayEntry';
 import { localDateId } from '../lib/date';
 import { generateInviteCode } from '../lib/invite';
-import type { DayEntry, MemberRole, TeamProject, TimeOffKind, WeeklyExpectedStartMap } from '../types';
+import {
+  APP_MODULE_LABELS,
+  APP_MODULE_ORDER,
+  LEAD_ONLY_MODULES,
+  emptyCustomModules,
+  parseMemberPermissions,
+} from '../lib/memberPermissions';
+import type { AppModule, DayEntry, MemberPermissions, MemberRole, TeamProject, TimeOffKind, WeeklyExpectedStartMap } from '../types';
 
 function escapeCsvCell(s: string): string {
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -64,7 +73,24 @@ type TeamsTab =
   | 'settings'
   | 'backup'
   | 'approvals'
-  | 'projects';
+  | 'projects'
+  | 'permissions';
+
+interface PermRow {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: MemberRole;
+  permissions: MemberPermissions;
+}
+
+interface PermModalState {
+  userId: string;
+  displayName: string;
+  role: MemberRole;
+  fullAccess: boolean;
+  modules: Record<AppModule, boolean>;
+}
 
 interface ApprovalDoc {
   id: string;
@@ -136,6 +162,11 @@ export function Teams() {
 
   const [weeklyDraft, setWeeklyDraft] = useState<Record<string, { h: string; m: string }>>({});
 
+  const [permRows, setPermRows] = useState<PermRow[]>([]);
+  const [permLoading, setPermLoading] = useState(false);
+  const [permModal, setPermModal] = useState<PermModalState | null>(null);
+  const [permPending, setPermPending] = useState(false);
+
   useEffect(() => {
     setSetHour(String(teamSettings.expectedStartHour));
     setSetMinute(String(teamSettings.expectedStartMinute));
@@ -149,7 +180,7 @@ export function Teams() {
   }, [teamName]);
 
   useEffect(() => {
-    const adminOnly: TeamsTab[] = ['general', 'settings', 'backup', 'projects'];
+    const adminOnly: TeamsTab[] = ['general', 'settings', 'backup', 'projects', 'permissions'];
     if (!isAdmin && adminOnly.includes(tab)) setTab('roster');
   }, [isAdmin, tab]);
 
@@ -302,6 +333,95 @@ export function Teams() {
     if (tab === 'projects' && teamId) void loadProjects();
   }, [tab, teamId, loadProjects]);
 
+  const loadPermMembers = useCallback(async () => {
+    if (!teamId) return;
+    setPermLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'teams', teamId, 'members'));
+      const list: PermRow[] = snap.docs.map((d) => {
+        const x = d.data();
+        return {
+          userId: d.id,
+          displayName: (x.displayName as string) ?? d.id,
+          email: (x.email as string) ?? '',
+          role: (x.role as MemberRole) ?? 'member',
+          permissions: parseMemberPermissions(x.permissions),
+        };
+      });
+      list.sort((a, b) => a.displayName.localeCompare(b.displayName));
+      setPermRows(list);
+    } finally {
+      setPermLoading(false);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    if (tab === 'permissions' && teamId && isAdmin) void loadPermMembers();
+  }, [tab, teamId, isAdmin, loadPermMembers]);
+
+  function openPermModal(row: PermRow) {
+    const p = row.permissions;
+    const base = emptyCustomModules();
+    if (!p.fullAccess) {
+      for (const k of APP_MODULE_ORDER) {
+        if (p.modules[k] === true) base[k] = true;
+      }
+    } else {
+      for (const k of APP_MODULE_ORDER) base[k] = true;
+    }
+    setPermModal({
+      userId: row.userId,
+      displayName: row.displayName,
+      role: row.role,
+      fullAccess: p.fullAccess,
+      modules: base,
+    });
+    setError('');
+  }
+
+  async function savePermModal() {
+    if (!teamId || !user || !permModal) return;
+    if (!permModal.fullAccess) {
+      const anyOn = APP_MODULE_ORDER.some((m) => {
+        if (permModal.role === 'member' && LEAD_ONLY_MODULES.includes(m)) return false;
+        return permModal.modules[m];
+      });
+      if (!anyOn) {
+        setError('Enable at least one module, or choose Full access.');
+        return;
+      }
+    }
+    setPermPending(true);
+    setError('');
+    try {
+      const modulesOut: Partial<Record<AppModule, boolean>> = {};
+      if (!permModal.fullAccess) {
+        for (const k of APP_MODULE_ORDER) {
+          if (permModal.role === 'member' && LEAD_ONLY_MODULES.includes(k)) continue;
+          if (permModal.modules[k]) modulesOut[k] = true;
+        }
+      }
+      await updateDoc(doc(db, 'teams', teamId, 'members', permModal.userId), {
+        permissions: permModal.fullAccess
+          ? { fullAccess: true, modules: {} }
+          : { fullAccess: false, modules: modulesOut },
+      });
+      await appendAuditLog(teamId, user.uid, 'member_permissions_updated', {
+        memberUid: permModal.userId,
+        fullAccess: permModal.fullAccess,
+        modules: modulesOut,
+      });
+      const editedSelf = permModal.userId === user.uid;
+      setPermModal(null);
+      await loadPermMembers();
+      if (editedSelf) await refreshTeam();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save permissions');
+    } finally {
+      setPermPending(false);
+    }
+  }
+
   function buildWeeklySchedulePayload(): WeeklyExpectedStartMap | null {
     const out: WeeklyExpectedStartMap = {};
     for (const k of ['0', '1', '2', '3', '4', '5', '6'] as const) {
@@ -372,7 +492,7 @@ export function Teams() {
         name,
         client: projClient.trim(),
         archived: false,
-        createdAt: Timestamp.now(),
+        createdAt: serverTimestamp(),
       });
       await appendAuditLog(teamId, user.uid, 'project_created', { name });
       setProjName('');
@@ -724,6 +844,7 @@ export function Teams() {
       base.push(
         { id: 'settings', label: 'Policies' },
         { id: 'projects', label: 'Projects' },
+        { id: 'permissions', label: 'Permissions' },
         { id: 'backup', label: 'Backup' }
       );
     }
@@ -1221,6 +1342,158 @@ export function Teams() {
             <div className="teams-actions">
               <button type="button" className="btn btn-primary" disabled={settingsPending} onClick={() => void saveTeamSettings()}>
                 Save policies
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'permissions' && isAdmin && (
+        <div className="card wide teams-tab-panel teams-panel">
+          <header className="teams-panel-head">
+            <div className="teams-perm-head">
+              <Shield className="teams-perm-head__icon" size={22} strokeWidth={2} aria-hidden />
+              <div>
+                <h2 className="teams-panel-title">Permissions</h2>
+                <p className="teams-panel-lede muted small">
+                  Full access uses the default for their role. Custom limits which modules appear in the sidebar and which
+                  routes open. Admins always have full access. Teams, Analytics, and Reports require a lead role (manager,
+                  auditor, or admin) in addition to the module toggle.
+                </p>
+              </div>
+            </div>
+          </header>
+          {permLoading ? (
+            <p className="muted teams-panel-loading">Loading…</p>
+          ) : (
+            <div className="table-wrap teams-table-wrap">
+              <table className="data-table teams-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Access</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {permRows.map((r) => (
+                    <tr key={r.userId}>
+                      <td>
+                        <strong>{r.displayName}</strong>
+                        <div className="muted small">{r.email}</div>
+                      </td>
+                      <td>{r.role}</td>
+                      <td>
+                        {r.role === 'admin' ? (
+                          <span className="muted small">Full (admin)</span>
+                        ) : r.permissions.fullAccess ? (
+                          <span className="muted small">Full access</span>
+                        ) : (
+                          <span className="muted small">
+                            Custom ({APP_MODULE_ORDER.filter((m) => r.permissions.modules[m] === true).length} modules)
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {r.role !== 'admin' && (
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => openPermModal(r)}>
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {permModal && (
+        <div className="timesheet-modal-backdrop" role="presentation" onClick={() => !permPending && setPermModal(null)}>
+          <div
+            className="timesheet-modal timesheet-modal--wide card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="perm-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="timesheet-modal__head">
+              <h2 id="perm-modal-title" className="timesheet-modal__title">
+                Permissions · {permModal.displayName}
+              </h2>
+              <button
+                type="button"
+                className="timesheet-modal__close btn btn-ghost btn-sm"
+                disabled={permPending}
+                onClick={() => setPermModal(null)}
+                aria-label="Close"
+              >
+                <X size={22} strokeWidth={2} />
+              </button>
+            </div>
+            {error && <p className="error timesheet-modal-error">{error}</p>}
+            <div className="timesheet-modal-body">
+              <fieldset className="teams-perm-fieldset">
+                <legend className="sr-only">Access mode</legend>
+                <label className="teams-perm-radio">
+                  <input
+                    type="radio"
+                    name="perm-mode"
+                    checked={permModal.fullAccess}
+                    onChange={() => setPermModal((p) => (p ? { ...p, fullAccess: true } : null))}
+                  />
+                  <span>
+                    <strong>Full access</strong>
+                    <span className="muted small"> All modules allowed for this person&apos;s role.</span>
+                  </span>
+                </label>
+                <label className="teams-perm-radio">
+                  <input
+                    type="radio"
+                    name="perm-mode"
+                    checked={!permModal.fullAccess}
+                    onChange={() => setPermModal((p) => (p ? { ...p, fullAccess: false } : null))}
+                  />
+                  <span>
+                    <strong>Custom</strong>
+                    <span className="muted small"> Pick modules below.</span>
+                  </span>
+                </label>
+              </fieldset>
+              {!permModal.fullAccess && (
+                <div className="teams-perm-check-grid">
+                  {APP_MODULE_ORDER.map((mod) => {
+                    const leadOnly = LEAD_ONLY_MODULES.includes(mod);
+                    const disabled = permModal.role === 'member' && leadOnly;
+                    return (
+                      <label key={mod} className={`teams-perm-check${disabled ? ' teams-perm-check--disabled' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={permModal.modules[mod]}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            setPermModal((p) =>
+                              p ? { ...p, modules: { ...p.modules, [mod]: e.target.checked } } : null
+                            )
+                          }
+                        />
+                        <span>{APP_MODULE_LABELS[mod]}</span>
+                        {disabled && <span className="muted small"> (needs lead role)</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="timesheet-modal__actions">
+              <button type="button" className="btn btn-secondary" disabled={permPending} onClick={() => setPermModal(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" disabled={permPending} onClick={() => void savePermModal()}>
+                {permPending ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>

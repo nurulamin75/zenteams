@@ -19,8 +19,9 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, updateDoc, Timestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase/config';
+import { canAccessAppModule, firstAccessiblePath, parseMemberPermissions } from '../lib/memberPermissions';
 import { DEFAULT_TEAM_SETTINGS, parseTeamSettings } from '../lib/teamSettings';
-import type { MemberRole, TeamSettings, UserPreferences, UserTeam } from '../types';
+import type { AppModule, MemberPermissions, MemberRole, TeamSettings, UserPreferences, UserTeam } from '../types';
 
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -39,6 +40,9 @@ interface AuthContextValue {
   teamSettings: TeamSettings;
   memberScheduleOverride: { hour: number; minute: number } | null;
   userPreferences: UserPreferences | null;
+  memberPermissions: MemberPermissions | null;
+  canAccessModule: (module: AppModule) => boolean;
+  permissionFallbackPath: string;
   refreshTeam: () => Promise<void>;
   refreshUserDoc: () => Promise<void>;
   switchTeam: (teamId: string) => Promise<void>;
@@ -65,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     minute: number;
   } | null>(null);
   const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+  const [memberPermissions, setMemberPermissions] = useState<MemberPermissions | null>(null);
 
   const loadUserAndTeam = useCallback(async (uid: string) => {
     const userSnap = await getDoc(doc(db, 'users', uid));
@@ -86,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMemberDisplayName(null);
       setTeamSettings(DEFAULT_TEAM_SETTINGS);
       setMemberScheduleOverride(null);
+      setMemberPermissions(null);
       return;
     }
 
@@ -117,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMemberDisplayName(null);
       setTeamSettings(DEFAULT_TEAM_SETTINGS);
       setMemberScheduleOverride(null);
+      setMemberPermissions(null);
       return;
     }
 
@@ -140,6 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const m = memberSnap.data();
       setRole(m.role as MemberRole);
       setMemberDisplayName(m.displayName as string);
+      setMemberPermissions(parseMemberPermissions(m.permissions));
       const h = m.expectedStartHour;
       const min = m.expectedStartMinute;
       if (typeof h === 'number' && typeof min === 'number' && h >= 0 && h <= 23 && min >= 0 && min <= 59) {
@@ -151,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole(null);
       setMemberDisplayName(null);
       setMemberScheduleOverride(null);
+      setMemberPermissions(null);
     }
   }, []);
 
@@ -169,6 +178,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTeamSettings(DEFAULT_TEAM_SETTINGS);
         setMemberScheduleOverride(null);
         setUserPreferences(null);
+        setMemberPermissions(null);
       }
       setLoading(false);
     });
@@ -220,6 +230,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const canManageTeam = role === 'admin' || role === 'manager';
   const isAuditor = role === 'auditor';
+  const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
+
+  const canAccessModule = useCallback(
+    (module: AppModule) => canAccessAppModule(role, memberPermissions, module, canLeadTeam),
+    [role, memberPermissions, canLeadTeam]
+  );
+
+  const permissionFallbackPath = useMemo(
+    () => firstAccessiblePath(role, memberPermissions, canLeadTeam),
+    [role, memberPermissions, canLeadTeam]
+  );
 
   const value = useMemo(
     () => ({
@@ -236,6 +257,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       teamSettings,
       memberScheduleOverride,
       userPreferences,
+      memberPermissions,
+      canAccessModule,
+      permissionFallbackPath,
       refreshTeam,
       refreshUserDoc,
       switchTeam,
@@ -258,6 +282,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       teamSettings,
       memberScheduleOverride,
       userPreferences,
+      memberPermissions,
+      canAccessModule,
+      permissionFallbackPath,
       refreshTeam,
       refreshUserDoc,
       switchTeam,

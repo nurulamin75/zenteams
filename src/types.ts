@@ -48,6 +48,24 @@ export interface DayEntry {
   updatedAt: Timestamp;
 }
 
+/** Feature modules gated by admin-configured permissions (stored on member doc). */
+export type AppModule =
+  | 'dashboard'
+  | 'attendance'
+  | 'timesheet'
+  | 'calendar'
+  | 'projects'
+  | 'teams'
+  | 'analytics'
+  | 'reports'
+  | 'settings';
+
+/** When fullAccess is true, modules map is ignored. When false, only modules set to true are allowed. */
+export interface MemberPermissions {
+  fullAccess: boolean;
+  modules: Partial<Record<AppModule, boolean>>;
+}
+
 export interface MemberProfile {
   role: MemberRole;
   displayName: string;
@@ -58,6 +76,7 @@ export interface MemberProfile {
   expectedStartMinute?: number | null;
   /** IANA or label, e.g. America/New_York */
   timezone?: string | null;
+  permissions?: MemberPermissions;
 }
 
 export type TimeOffKind = 'holiday' | 'pto';

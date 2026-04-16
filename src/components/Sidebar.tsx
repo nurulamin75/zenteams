@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   BarChart3,
+  Briefcase,
   CalendarClock,
   CalendarRange,
   ClipboardList,
@@ -29,7 +30,7 @@ export function Sidebar({
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }) {
-  const { teamId, teamName, teams, role, logout, switchTeam } = useAuth();
+  const { teamId, teamName, teams, role, logout, switchTeam, canAccessModule } = useAuth();
   const hasTeam = Boolean(teamId);
   const canLeadTeam = role === 'admin' || role === 'manager' || role === 'auditor';
 
@@ -80,37 +81,53 @@ export function Sidebar({
         <nav className="sidebar-nav">
           {hasTeam ? (
             <>
-              <NavLink to="/" end className={linkClass} onClick={onClose} title="Dashboard">
-                <LayoutDashboard size={20} strokeWidth={2} />
-                <span className="sidebar-link-text">Dashboard</span>
-              </NavLink>
-              <NavLink to="/today" className={linkClass} onClick={onClose} title="Attendance">
-                <CalendarClock size={20} strokeWidth={2} />
-                <span className="sidebar-link-text">Attendance</span>
-              </NavLink>
-              <NavLink to="/timesheet" className={linkClass} onClick={onClose} title="Timesheet">
-                <Timer size={20} strokeWidth={2} />
-                <span className="sidebar-link-text">Timesheet</span>
-              </NavLink>
-              <NavLink to="/calendar" className={linkClass} onClick={onClose} title="Calendar">
-                <CalendarRange size={20} strokeWidth={2} />
-                <span className="sidebar-link-text">Calendar</span>
-              </NavLink>
-              {canLeadTeam && (
-                <>
-                  <NavLink to="/teams" className={linkClass} onClick={onClose} title="Teams">
-                    <Users size={20} strokeWidth={2} />
-                    <span className="sidebar-link-text">Teams</span>
-                  </NavLink>
-                  <NavLink to="/analytics" className={linkClass} onClick={onClose} title="Analytics">
-                    <BarChart3 size={20} strokeWidth={2} />
-                    <span className="sidebar-link-text">Analytics</span>
-                  </NavLink>
-                  <NavLink to="/reports" className={linkClass} onClick={onClose} title="Reports">
-                    <FileBarChart size={20} strokeWidth={2} />
-                    <span className="sidebar-link-text">Reports</span>
-                  </NavLink>
-                </>
+              {canAccessModule('dashboard') && (
+                <NavLink to="/" end className={linkClass} onClick={onClose} title="Dashboard">
+                  <LayoutDashboard size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Dashboard</span>
+                </NavLink>
+              )}
+              {canAccessModule('attendance') && (
+                <NavLink to="/today" className={linkClass} onClick={onClose} title="Attendance">
+                  <CalendarClock size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Attendance</span>
+                </NavLink>
+              )}
+              {canAccessModule('timesheet') && (
+                <NavLink to="/timesheet" className={linkClass} onClick={onClose} title="Timesheet">
+                  <Timer size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Timesheet</span>
+                </NavLink>
+              )}
+              {canAccessModule('calendar') && (
+                <NavLink to="/calendar" className={linkClass} onClick={onClose} title="Calendar">
+                  <CalendarRange size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Calendar</span>
+                </NavLink>
+              )}
+              {canAccessModule('projects') && (
+                <NavLink to="/projects" className={linkClass} onClick={onClose} title="Projects">
+                  <Briefcase size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Projects</span>
+                </NavLink>
+              )}
+              {canLeadTeam && canAccessModule('teams') && (
+                <NavLink to="/teams" className={linkClass} onClick={onClose} title="Teams">
+                  <Users size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Teams</span>
+                </NavLink>
+              )}
+              {canLeadTeam && canAccessModule('analytics') && (
+                <NavLink to="/analytics" className={linkClass} onClick={onClose} title="Analytics">
+                  <BarChart3 size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Analytics</span>
+                </NavLink>
+              )}
+              {canLeadTeam && canAccessModule('reports') && (
+                <NavLink to="/reports" className={linkClass} onClick={onClose} title="Reports">
+                  <FileBarChart size={20} strokeWidth={2} />
+                  <span className="sidebar-link-text">Reports</span>
+                </NavLink>
               )}
             </>
           ) : (
@@ -129,10 +146,12 @@ export function Sidebar({
               </NavLink>
             </>
           )}
-          <NavLink to="/settings" className={linkClass} onClick={onClose} title="Settings">
-            <Settings size={20} strokeWidth={2} />
-            <span className="sidebar-link-text">Settings</span>
-          </NavLink>
+          {(!hasTeam || canAccessModule('settings')) && (
+            <NavLink to="/settings" className={linkClass} onClick={onClose} title="Settings">
+              <Settings size={20} strokeWidth={2} />
+              <span className="sidebar-link-text">Settings</span>
+            </NavLink>
+          )}
         </nav>
 
         <div className="sidebar-footer">
